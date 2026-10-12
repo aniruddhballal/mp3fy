@@ -354,6 +354,8 @@ function MarqueeText({ text, textStyle, style, alignRight = false, fadeColor = '
     return () => animation.current?.stop();
   }, [containerWidth, text, textWidth, translateX]);
 
+  const marqueeDistance = Math.max(0, textWidth - containerWidth);
+
   return (
     <View onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)} style={[styles.marqueeViewport, style]}>
       <Animated.View style={[styles.marqueeContent, { transform: [{ translateX }], width: Math.max(containerWidth, textWidth) }]}> 
@@ -363,9 +365,9 @@ function MarqueeText({ text, textStyle, style, alignRight = false, fadeColor = '
         <Animated.View pointerEvents="none" style={[styles.marqueeFade, styles.marqueeFadeLeft, { opacity: translateX.interpolate({ inputRange: [-8, 0], outputRange: [1, 0], extrapolate: 'clamp' }) }]}>
           <LinearGradient colors={[fadeColor, fadeTransparentColor]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.marqueeFadeGradient} />
         </Animated.View>
-        <View pointerEvents="none" style={[styles.marqueeFade, styles.marqueeFadeRight]}>
+        <Animated.View pointerEvents="none" style={[styles.marqueeFade, styles.marqueeFadeRight, { opacity: translateX.interpolate({ inputRange: [-marqueeDistance, -Math.max(0, marqueeDistance - MARQUEE_FADE_WIDTH)], outputRange: [0, 1], extrapolate: 'clamp' }) }]}>
           <LinearGradient colors={[fadeTransparentColor, fadeColor]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.marqueeFadeGradient} />
-        </View>
+        </Animated.View>
       </> : null}
       <Text onTextLayout={(event) => {
         const width = event.nativeEvent.lines.reduce((largest, line) => Math.max(largest, line.width), 0);
