@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   LayoutChangeEvent,
   Pressable,
@@ -126,6 +127,15 @@ export default function App() {
       }
     });
   }, [rescan]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (currentTrack && nextState !== 'unknown') {
+        player.setActiveForLockScreen(true, { title: currentTrack.name, artist: 'mp3fy' });
+      }
+    });
+    return () => subscription.remove();
+  }, [currentTrack, player]);
 
   useEffect(() => {
     if (!status.didJustFinish || !queue.length || queueIndex < 0) return;
