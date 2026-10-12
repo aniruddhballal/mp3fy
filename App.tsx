@@ -31,7 +31,6 @@ type Track = { folderName: string; folderUri: string; name: string; uri: string 
 type TrackMetadata = { title: string; artist: string; album: string; trackNumber: string };
 type PlaybackMode = 'shuffle' | 'sequential';
 type RepeatMode = 'all' | 'one';
-type PlaybackSnapshot = { position: number; playing: boolean };
 type Screen =
   | { kind: 'folders' }
   | { kind: 'songs'; folderUri: string }
@@ -500,7 +499,7 @@ function Mp3fyApp() {
     await applyArtwork(details.artwork, details.metadata);
   }, [artworkCache, artworkMediaCache, metadataCache, player]);
 
-  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, snapshot?: PlaybackSnapshot) => {
+  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number) => {
     const nextTrack = nextQueue[nextIndex];
     if (!nextTrack) return;
     player.clear();
@@ -515,16 +514,28 @@ function Mp3fyApp() {
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
     callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy' });
-    if (snapshot) {
-      void player.seekTo(Math.max(0, snapshot.position)).catch(() => undefined).then(() => {
-        if (snapshot.playing) player.play();
-        else player.pause();
-      });
-    } else {
-      player.play();
-    }
+    player.play();
     void loadArtwork(nextTrack);
   }, [loadArtwork, player, repeatMode]);
+
+  const replaceQueueWithoutInterrupt = useCallback((nextQueue: Track[], nextIndex: number) => {
+    const activeNativeIndex = player.currentIndex;
+    const activeQueueIndex = queue.findIndex((track) => track.uri === currentTrack?.uri);
+    if (!currentTrack || activeNativeIndex < 0 || activeNativeIndex >= player.trackCount || activeQueueIndex < 0) return false;
+
+    // Keep the active native item in place while removing and inserting the
+    // surrounding items. This avoids clear(), skipTo(), seekTo(), and play().
+    for (let index = player.trackCount - 1; index >= 0; index -= 1) {
+      if (index !== activeNativeIndex) player.remove(index);
+    }
+    nextQueue.slice(0, nextIndex).forEach((track, index) => player.insert({ uri: track.uri }, index));
+    const nextTrackIndex = nextIndex;
+    nextQueue.slice(nextIndex + 1).forEach((track, index) => player.insert({ uri: track.uri }, nextTrackIndex + 1 + index));
+    player.loop = repeatMode === 'one' ? 'single' : 'all';
+    setQueue(nextQueue);
+    setQueueIndex(nextIndex);
+    return true;
+  }, [currentTrack, player, queue, repeatMode]);
 
   useEffect(() => {
     if (!queue.length || status.currentIndex < 0 || status.currentIndex >= queue.length) return;
@@ -567,8 +578,8 @@ function Mp3fyApp() {
     setMode(nextMode);
     if (!currentTrack) return;
     const nextPlayback = buildQueue(tracks, currentTrack, nextMode);
-    startPlayback(nextPlayback.queue, nextPlayback.index, { position: player.currentTime, playing: player.playing });
-  }, [currentTrack, player, startPlayback, tracks]);
+    replaceQueueWithoutInterrupt(nextPlayback.queue, nextPlayback.index);
+  }, [currentTrack, replaceQueueWithoutInterrupt, tracks]);
 
   const addFolder = useCallback(async () => {
     setIsScanning(true);
@@ -607,16 +618,12 @@ function Mp3fyApp() {
       }
       const nextTracks = await scanFolders(nextFolders);
       setTracks(nextTracks);
-      if (currentTrack && currentTrack.folderUri !== folder.uri) {
-        const nextPlayback = buildQueue(nextTracks, currentTrack, mode);
-        startPlayback(nextPlayback.queue, nextPlayback.index, { position: player.currentTime, playing: player.playing });
-      }
     } catch {
       setNotice('The folder could not be removed.');
     } finally {
       setIsScanning(false);
     }
-  }, [currentTrack, folders, mode, player, screen, startPlayback]);
+  }, [currentTrack, folders, player, screen]);
 
   const openFolder = (folder: Folder) => setScreen({ kind: 'songs', folderUri: folder.uri });
   const seek = (event: { nativeEvent: { locationX: number } }) => {
@@ -707,7 +714,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.7</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.8</Text></View>
     </View>
   );
 }
