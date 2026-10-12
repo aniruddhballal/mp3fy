@@ -332,6 +332,10 @@ function MarqueeText({ text, textStyle, style }: { text: string; textStyle: obje
   const [textWidth, setTextWidth] = useState(0);
 
   useEffect(() => {
+    setTextWidth(0);
+  }, [text]);
+
+  useEffect(() => {
     animation.current?.stop();
     translateX.setValue(0);
     if (containerWidth > 0 && textWidth > containerWidth + 1) {
@@ -350,9 +354,13 @@ function MarqueeText({ text, textStyle, style }: { text: string; textStyle: obje
 
   return (
     <View onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)} style={[styles.marqueeViewport, style]}>
-      <Animated.View style={[styles.marqueeContent, { transform: [{ translateX }] }]}>
-        <Text numberOfLines={1} onLayout={(event) => setTextWidth(event.nativeEvent.layout.width)} style={[textStyle, styles.marqueeText]}>{text}</Text>
+      <Animated.View style={[styles.marqueeContent, { transform: [{ translateX }], width: Math.max(containerWidth, textWidth) }]}>
+        <Text numberOfLines={1} ellipsizeMode="clip" style={[textStyle, styles.marqueeText]}>{text}</Text>
       </Animated.View>
+      <Text onTextLayout={(event) => {
+        const width = event.nativeEvent.lines.reduce((largest, line) => Math.max(largest, line.width), 0);
+        if (width > 0 && width !== textWidth) setTextWidth(Math.ceil(width));
+      }} style={[textStyle, styles.marqueeMeasure]}>{text}</Text>
     </View>
   );
 }
@@ -687,7 +695,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.0</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.1</Text></View>
     </View>
   );
 }
@@ -742,7 +750,7 @@ function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progre
       <MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} />
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
       {metadata.album || metadata.trackNumber ? <View style={styles.metadataDetails}>
-        {metadata.album ? <Text style={styles.metadataItem} numberOfLines={1}>{metadata.album}</Text> : null}
+        {metadata.album ? <MarqueeText style={styles.metadataAlbumViewport} text={metadata.album} textStyle={styles.metadataItem} /> : null}
         {metadata.trackNumber ? <Text style={styles.metadataItem} numberOfLines={1}>#{metadata.trackNumber}</Text> : null}
       </View> : null}
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
@@ -820,6 +828,7 @@ const styles = StyleSheet.create({
   playerTitleViewport: { marginTop: 0 },
   playerArtistViewport: { marginTop: 0 },
   metadataDetails: { flexDirection: 'row', gap: 14, marginTop: 4 },
+  metadataAlbumViewport: { flex: 1, minWidth: 0 },
   metadataItem: { color: '#555555', flexShrink: 1, fontSize: 11 },
   progressTrack: { backgroundColor: '#DDDDDD', height: 8, marginTop: 16, overflow: 'hidden' },
   progressFill: { backgroundColor: '#000000', height: 8 },
@@ -840,6 +849,7 @@ const styles = StyleSheet.create({
   glyphArrowHead: { borderBottomColor: 'transparent', borderBottomWidth: 3, borderLeftWidth: 5, borderTopColor: 'transparent', borderTopWidth: 3, height: 0, left: 15, position: 'absolute', width: 0 },
   marqueeViewport: { overflow: 'hidden' },
   marqueeContent: { alignSelf: 'flex-start', flexDirection: 'row' },
+  marqueeMeasure: { left: 0, opacity: 0, position: 'absolute', top: 0, width: 10000 },
   marqueeText: { flexShrink: 0 },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
   preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
