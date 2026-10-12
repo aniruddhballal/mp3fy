@@ -3,9 +3,11 @@ const { withProjectBuildGradle, withSettingsGradle } = require('@expo/config-plu
 const AUDIO_PROJECT = "include ':expo-audio-local'\nproject(':expo-audio-local').projectDir = new File(rootDir, '../node_modules/expo-audio/android')";
 const AUDIO_SUBSTITUTION = `
 
-configurations.configureEach {
-  resolutionStrategy.dependencySubstitution {
-    substitute module('expo.modules.audio:expo.modules.audio') using project(':expo-audio-local')
+allprojects {
+  configurations.configureEach {
+    resolutionStrategy.dependencySubstitution {
+      substitute module('expo.modules.audio:expo.modules.audio') using project(':expo-audio-local')
+    }
   }
 }`;
 
@@ -21,7 +23,7 @@ module.exports = function withPatchedExpoAudio(config) {
   });
 
   return withProjectBuildGradle(config, (modConfig) => {
-    if (!modConfig.modResults.contents.includes("expo-audio-local")) {
+    if (!modConfig.modResults.contents.includes("allprojects {\n  configurations.configureEach")) {
       modConfig.modResults.contents += AUDIO_SUBSTITUTION;
     }
     return modConfig;
