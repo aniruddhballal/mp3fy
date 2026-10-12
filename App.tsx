@@ -32,6 +32,16 @@ type Screen =
   | { kind: 'songs'; folderUri: string }
   | { kind: 'player'; returnTo: 'folders' | 'songs' };
 
+function callOptionalPlayerMethod(player: object, methodName: string, ...args: unknown[]) {
+  const method = (player as unknown as Record<string, unknown>)[methodName];
+  if (typeof method !== 'function') return;
+  try {
+    method.apply(player, args);
+  } catch {
+    // Lock-screen controls are an enhancement; they must never interrupt playback.
+  }
+}
+
 async function scanDirectory(directory: Directory, folder: Folder): Promise<Track[]> {
   const tracks: Track[] = [];
   for (const item of directory.list()) {
@@ -305,7 +315,7 @@ function Mp3fyApp() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (currentTrack && nextState !== 'unknown') {
-        player.setActiveForLockScreen(true, { title: currentTrack.name, artist: 'mp3fy', artworkUrl: artworkMediaCache.get(currentTrack.uri) ?? undefined });
+        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: currentTrack.name, artist: 'mp3fy', artworkUrl: artworkMediaCache.get(currentTrack.uri) ?? undefined });
       }
     });
     return () => subscription.remove();
@@ -340,7 +350,7 @@ function Mp3fyApp() {
       if (mediaArtwork) artworkMediaCache.set(track.uri, mediaArtwork);
       if (request !== artworkRequest.current) return;
       setCurrentArtwork(mediaArtwork ?? dataUri);
-      player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
+      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
     };
 
     if (artworkCache.has(track.uri)) {
@@ -363,7 +373,7 @@ function Mp3fyApp() {
     setQueueIndex(nextIndex);
     setCurrentTrack(nextTrack);
     setCurrentArtwork(null);
-    player.setActiveForLockScreen(true, { title: nextTrack.name, artist: 'mp3fy' });
+    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextTrack.name, artist: 'mp3fy' });
     player.play();
     void loadArtwork(nextTrack);
   }, [loadArtwork, player, repeatMode]);
@@ -375,7 +385,7 @@ function Mp3fyApp() {
     if (currentTrack?.uri === nextTrack.uri) return;
     setCurrentTrack(nextTrack);
     setCurrentArtwork(null);
-    player.updateLockScreenMetadata({ title: nextTrack.name, artist: 'mp3fy' });
+    callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: nextTrack.name, artist: 'mp3fy' });
     void loadArtwork(nextTrack);
   }, [currentTrack?.uri, loadArtwork, player, queue, status.currentIndex]);
 
@@ -441,7 +451,7 @@ function Mp3fyApp() {
       if (currentTrack?.folderUri === folder.uri) {
         player.pause();
         player.clear();
-        player.setActiveForLockScreen(false);
+        callOptionalPlayerMethod(player, 'setActiveForLockScreen', false);
         setCurrentTrack(null);
         setCurrentArtwork(null);
         setQueue([]);
@@ -550,7 +560,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders.</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.1</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.2</Text></View>
     </View>
   );
 }
