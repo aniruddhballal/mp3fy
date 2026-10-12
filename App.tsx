@@ -567,7 +567,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders.</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.6</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.7</Text></View>
     </View>
   );
 }
@@ -597,9 +597,9 @@ type TransportIconKind = 'shuffle' | 'order' | 'repeatAll' | 'repeatOne';
 function TransportGlyph({ kind, active }: { kind: TransportIconKind; active: boolean }) {
   const color = active ? '#FFFFFF' : '#000000';
   if (kind === 'repeatAll' || kind === 'repeatOne') {
-    return <View style={styles.repeatGlyph}><Text style={[styles.glyphText, { color }]}>{'\u21bb'}</Text>{kind === 'repeatOne' ? <Text style={[styles.repeatNumber, { color }]}>1</Text> : null}</View>;
+    return <View style={[styles.iconFrame, styles.repeatGlyph]}><Text style={[styles.glyphText, { color }]}>{'\u21bb'}</Text>{kind === 'repeatOne' ? <View style={[styles.repeatBadge, { borderColor: color }]}><Text style={[styles.repeatNumber, { color }]}>1</Text></View> : null}</View>;
   }
-  return <Text style={[styles.glyphText, { color }]}>{kind === 'shuffle' ? '\u21c6' : '\u21c4'}</Text>;
+  return <View style={styles.iconFrame}><Text style={[styles.glyphText, { color }]}>{kind === 'shuffle' ? '\u21c6' : '\u21c4'}</Text></View>;
 }
 
 function IconButton({ icon, accessibilityLabel, onPress, active = false, transport = false }: { icon: TransportIconKind; accessibilityLabel: string; onPress: () => void; active?: boolean; transport?: boolean }) {
@@ -680,7 +680,7 @@ const styles = StyleSheet.create({
   artPlaceholder: { alignItems: 'center', backgroundColor: '#EEEEEE', borderColor: '#000000', borderWidth: 1, justifyContent: 'center' },
   artPlaceholderText: { color: '#000000', fontSize: 22, fontWeight: '700', letterSpacing: -1 },
   artLoadingText: { color: '#444444', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 10 },
-  playerScreen: { paddingBottom: 28 },
+  playerScreen: { flexGrow: 1, justifyContent: 'center', paddingBottom: 28, paddingTop: 18 },
   playerArt: { alignItems: 'center', paddingTop: 26 },
   playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 24 },
   playerFolder: { color: '#555555', fontSize: 14, marginTop: 6 },
@@ -693,9 +693,11 @@ const styles = StyleSheet.create({
   transportSideButton: { flex: 1, minWidth: 0, width: 'auto' },
   transportMainButton: { flex: 2.25, minWidth: 0, paddingHorizontal: 0 },
   activeIconButton: { backgroundColor: '#000000' },
-  glyphText: { fontSize: 27, fontWeight: '400', includeFontPadding: false, lineHeight: 30, textAlign: 'center', width: 32 },
-  repeatGlyph: { alignItems: 'center', height: 30, justifyContent: 'center', position: 'relative', width: 32 },
-  repeatNumber: { bottom: 0, fontSize: 12, fontWeight: '700', lineHeight: 14, position: 'absolute', right: 1 },
+  iconFrame: { alignItems: 'center', height: 32, justifyContent: 'center', width: 32 },
+  glyphText: { fontSize: 27, fontWeight: '400', includeFontPadding: false, lineHeight: 28, textAlign: 'center', width: 32 },
+  repeatGlyph: { position: 'relative' },
+  repeatBadge: { alignItems: 'center', borderWidth: 1, bottom: 2, height: 11, justifyContent: 'center', position: 'absolute', right: 0, width: 11 },
+  repeatNumber: { fontSize: 7, fontWeight: '700', lineHeight: 8 },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
   preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', flex: 1, justifyContent: 'center', padding: 24 },

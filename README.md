@@ -8,7 +8,7 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, background controls, and loading feedback during startup and folder operations. Playback queues always stay within the folder where the track was selected.
 
-The current Android release is version `1.3.6` (`versionCode` `11`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`.
+The current Android release is version `1.3.7` (`versionCode` `12`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`.
 
 ## Planned workflow
 
