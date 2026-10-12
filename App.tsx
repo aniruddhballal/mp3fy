@@ -582,7 +582,7 @@ function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: 
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} renderItem={({ item }) => {
         const isPlaying = currentTrack?.uri === item.uri;
-        return <Pressable onPress={() => onPlayTrack(item)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}><Text numberOfLines={1} style={styles.trackName}>{item.name}</Text><Text style={styles.trackFolder}>{isPlaying ? 'PLAYING' : 'MP3 FILE'}</Text></View><Text style={styles.playText}>{isPlaying ? 'PLAYING' : 'PLAY'}</Text></Pressable>;
+        return <Pressable onPress={() => onPlayTrack(item)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}><Text numberOfLines={1} style={styles.trackName}>{item.name}</Text></View></Pressable>;
       }} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No MP3 files</Text><Text style={styles.description}>This folder does not currently contain any MP3 files.</Text></View>}
     </View>
   );
@@ -665,8 +665,6 @@ const styles = StyleSheet.create({
   activeTrackIndicator: { backgroundColor: '#000000' },
   trackCopy: { flex: 1, marginRight: 12 },
   trackName: { color: '#000000', fontSize: 15, fontWeight: '600' },
-  trackFolder: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 0.6, marginTop: 5 },
-  playText: { color: '#000000', fontSize: 9, fontWeight: '700', letterSpacing: 0.6 },
   search: { borderBottomColor: '#000000', borderBottomWidth: 1, color: '#000000', fontSize: 15, marginTop: 18, paddingBottom: 9, paddingHorizontal: 0 },
   loading: { alignItems: 'flex-start', flex: 1, justifyContent: 'center' },
   startupLoading: { alignItems: 'center', flex: 1, justifyContent: 'center' },
