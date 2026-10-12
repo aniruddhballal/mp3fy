@@ -410,6 +410,8 @@ function Mp3fyApp() {
   }, [currentTrack, startPlayback, tracks]);
 
   const addFolder = useCallback(async () => {
+    setIsScanning(true);
+    setNotice('Selecting a folder.');
     try {
       const selectedDirectory = await Directory.pickDirectoryAsync();
       const nextFolder: Folder = { name: selectedDirectory.name, uri: selectedDirectory.uri };
@@ -422,32 +424,40 @@ function Mp3fyApp() {
       }
     } catch {
       setNotice('Folder selection was cancelled or unavailable.');
+    } finally {
+      setIsScanning(false);
     }
   }, [currentTrack, folders, mode, rescan, startPlayback]);
 
   const removeFolder = useCallback(async (folder: Folder) => {
-    const nextFolders = folders.filter((item) => item.uri !== folder.uri);
-    await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(nextFolders));
-    setFolders(nextFolders);
-    setTracks((existing) => existing.filter((track) => track.folderUri !== folder.uri));
-    if (screen.kind === 'songs' && screen.folderUri === folder.uri) setScreen({ kind: 'folders' });
-    if (currentTrack?.folderUri === folder.uri) {
-      player.pause();
-      player.clear();
-      player.setActiveForLockScreen(false);
-      setCurrentTrack(null);
-      setCurrentArtwork(null);
-      setQueue([]);
-      setQueueIndex(-1);
-      setScreen({ kind: 'folders' });
-    }
     setIsScanning(true);
-    const nextTracks = await scanFolders(nextFolders);
-    setTracks(nextTracks);
-    setIsScanning(false);
-    if (currentTrack && currentTrack.folderUri !== folder.uri) {
-      const nextPlayback = buildQueue(nextTracks, currentTrack, mode);
-      startPlayback(nextPlayback.queue, nextPlayback.index);
+    setNotice('Removing folder and rescanning.');
+    try {
+      const nextFolders = folders.filter((item) => item.uri !== folder.uri);
+      await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(nextFolders));
+      setFolders(nextFolders);
+      setTracks((existing) => existing.filter((track) => track.folderUri !== folder.uri));
+      if (screen.kind === 'songs' && screen.folderUri === folder.uri) setScreen({ kind: 'folders' });
+      if (currentTrack?.folderUri === folder.uri) {
+        player.pause();
+        player.clear();
+        player.setActiveForLockScreen(false);
+        setCurrentTrack(null);
+        setCurrentArtwork(null);
+        setQueue([]);
+        setQueueIndex(-1);
+        setScreen({ kind: 'folders' });
+      }
+      const nextTracks = await scanFolders(nextFolders);
+      setTracks(nextTracks);
+      if (currentTrack && currentTrack.folderUri !== folder.uri) {
+        const nextPlayback = buildQueue(nextTracks, currentTrack, mode);
+        startPlayback(nextPlayback.queue, nextPlayback.index);
+      }
+    } catch {
+      setNotice('The folder could not be removed.');
+    } finally {
+      setIsScanning(false);
     }
   }, [currentTrack, folders, mode, player, screen, startPlayback]);
 
