@@ -695,7 +695,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.1</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.2</Text></View>
     </View>
   );
 }
@@ -745,7 +745,7 @@ function IconButton({ icon, accessibilityLabel, onPress, active = false, transpo
 function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
-      <ScreenHeader subtitle="NOW PLAYING" right={<Text numberOfLines={1} style={styles.playerHeaderFolder}>{track.folderName}</Text>} />
+      <ScreenHeader subtitle="NOW PLAYING" right={<MarqueeText style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} />} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
       <MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} />
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
@@ -821,7 +821,8 @@ const styles = StyleSheet.create({
   artPlaceholderText: { color: '#000000', fontSize: 22, fontWeight: '700', letterSpacing: -1 },
   artLoadingText: { color: '#444444', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 10 },
   playerScreen: { flexGrow: 1, justifyContent: 'center', paddingBottom: 28, paddingTop: 18 },
-  playerHeaderFolder: { alignSelf: 'flex-start', color: '#000000', flexShrink: 1, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, marginLeft: 12, marginTop: 8, maxWidth: 170, textTransform: 'uppercase' },
+  playerHeaderFolderViewport: { alignSelf: 'flex-start', flexShrink: 1, marginLeft: 12, marginTop: 8, maxWidth: 170, minWidth: 0, width: 170 },
+  playerHeaderFolderText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
   playerArt: { alignItems: 'center', paddingTop: 18 },
   playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 16 },
   playerArtist: { color: '#555555', fontSize: 14, marginTop: 4 },
