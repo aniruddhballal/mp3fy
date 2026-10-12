@@ -242,9 +242,11 @@ function SmallButton({ label, onPress, active = false }: { label: string; onPres
   );
 }
 
-function AlbumArt({ uri, size, label }: { uri: string | null; size: number; label: string }) {
+function AlbumArt({ uri, size, label, loading = false }: { uri: string | null; size: number; label: string; loading?: boolean }) {
   return uri ? <Image accessibilityLabel={`Album artwork for ${label}`} source={{ uri }} style={{ height: size, width: size }} /> : (
-    <View style={[styles.artPlaceholder, { height: size, width: size }]}><Text style={styles.artPlaceholderText}>mp3fy</Text></View>
+    <View style={[styles.artPlaceholder, { height: size, width: size }]}>
+      {loading ? <><ActivityIndicator color="#000000" /><Text style={styles.artLoadingText}>LOADING ARTWORK</Text></> : <Text style={styles.artPlaceholderText}>mp3fy</Text>}
+    </View>
   );
 }
 
@@ -262,6 +264,7 @@ function Mp3fyApp() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [currentArtwork, setCurrentArtwork] = useState<string | null>(null);
+  const [isArtworkLoading, setIsArtworkLoading] = useState(false);
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [mode, setMode] = useState<PlaybackMode>('shuffle');
@@ -343,6 +346,7 @@ function Mp3fyApp() {
 
   const loadArtwork = useCallback(async (track: Track) => {
     const request = ++artworkRequest.current;
+    setIsArtworkLoading(true);
     const applyArtwork = async (dataUri: string | null) => {
       const mediaArtwork = dataUri
         ? artworkMediaCache.get(track.uri) ?? await materializeArtwork(dataUri, track.uri)
@@ -350,6 +354,7 @@ function Mp3fyApp() {
       if (mediaArtwork) artworkMediaCache.set(track.uri, mediaArtwork);
       if (request !== artworkRequest.current) return;
       setCurrentArtwork(mediaArtwork ?? dataUri);
+      setIsArtworkLoading(false);
       callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
     };
 
@@ -373,6 +378,7 @@ function Mp3fyApp() {
     setQueueIndex(nextIndex);
     setCurrentTrack(nextTrack);
     setCurrentArtwork(null);
+    setIsArtworkLoading(true);
     callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextTrack.name, artist: 'mp3fy' });
     player.play();
     void loadArtwork(nextTrack);
@@ -385,6 +391,7 @@ function Mp3fyApp() {
     if (currentTrack?.uri === nextTrack.uri) return;
     setCurrentTrack(nextTrack);
     setCurrentArtwork(null);
+    setIsArtworkLoading(true);
     callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: nextTrack.name, artist: 'mp3fy' });
     void loadArtwork(nextTrack);
   }, [currentTrack?.uri, loadArtwork, player, queue, status.currentIndex]);
@@ -507,12 +514,12 @@ function Mp3fyApp() {
           {screen.kind === 'folders' ? (
             <FoldersScreen folders={folderCounts} tracksCount={tracks.length} isScanning={isScanning} notice={notice} onAddFolder={addFolder} onOpenFolder={openFolder} onLongPressFolder={setFolderActions} />
           ) : screen.kind === 'songs' && selectedFolder ? (
-            <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onBack={() => setScreen({ kind: 'folders' })} onPlayTrack={playTrack} />
+            <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} />
           ) : currentTrack ? (
-            <PlayerScreen track={currentTrack} artwork={currentArtwork} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
+            <PlayerScreen track={currentTrack} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
           ) : null}
 
-          {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} artwork={currentArtwork} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onNext={playNext} /> : null}
+          {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onNext={playNext} /> : null}
         </View>
       </SafeAreaView>
 
@@ -541,11 +548,11 @@ function Mp3fyApp() {
   );
 }
 
-function ScreenHeader({ title, subtitle, onBack, right }: { title: string; subtitle: string; onBack?: () => void; right?: React.ReactNode }) {
+function ScreenHeader({ subtitle, right }: { subtitle: string; right?: React.ReactNode }) {
   return (
     <View style={styles.header}>
       <View style={styles.headerMain}>
-        {onBack ? <Pressable accessibilityRole="button" onPress={onBack} style={styles.backButton}><Text style={styles.backText}>&lt; BACK</Text></Pressable> : <Text style={styles.wordmark}>mp3fy</Text>}
+        <Text style={styles.wordmark}>mp3fy</Text>
         <Text style={styles.label}>{subtitle}</Text>
       </View>
       {right ?? null}
@@ -556,21 +563,21 @@ function ScreenHeader({ title, subtitle, onBack, right }: { title: string; subti
 function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; notice: string; onAddFolder: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="mp3fy" subtitle="LOCAL MP3 PLAYER" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
+      <ScreenHeader subtitle="LOCAL MP3 PLAYER" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders.</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.4</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.5</Text></View>
     </View>
   );
 }
 
-function SongsScreen({ folder, tracks, currentTrack, isScanning, onBack, onPlayTrack }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; isScanning: boolean; onBack: () => void; onPlayTrack: (track: Track) => void }) {
+function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; isScanning: boolean; onPlayTrack: (track: Track) => void }) {
   const [search, setSearch] = useState('');
   const visibleTracks = useMemo(() => tracks.filter((track) => track.name.toLowerCase().includes(search.trim().toLowerCase())), [search, tracks]);
   return (
     <View style={styles.screen}>
-      <ScreenHeader title={folder.name} subtitle="FOLDER" onBack={onBack} right={<Text style={styles.count}>{tracks.length} TRACKS</Text>} />
+      <ScreenHeader subtitle="FOLDER" right={<Text style={styles.count}>{tracks.length} TRACKS</Text>} />
       <View style={styles.pageHeading}><Text numberOfLines={2} style={styles.screenTitle}>{folder.name}</Text><Text style={styles.screenSubtitle}>Songs in this folder</Text></View>
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} renderItem={({ item }) => {
@@ -581,24 +588,24 @@ function SongsScreen({ folder, tracks, currentTrack, isScanning, onBack, onPlayT
   );
 }
 
-function MiniPlayer({ track, artwork, playing, onOpen, onTogglePlay, onNext }: { track: Track; artwork: string | null; playing: boolean; onOpen: () => void; onTogglePlay: () => void; onNext: () => void }) {
-  return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={track.name} size={52} uri={artwork} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><Text numberOfLines={1} style={styles.miniTitle}>{track.name}</Text><Text numberOfLines={1} style={styles.miniFolder}>{track.folderName}</Text></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
+function MiniPlayer({ track, artwork, artworkLoading, playing, onOpen, onTogglePlay, onNext }: { track: Track; artwork: string | null; artworkLoading: boolean; playing: boolean; onOpen: () => void; onTogglePlay: () => void; onNext: () => void }) {
+  return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={track.name} size={52} uri={artwork} loading={artworkLoading} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><Text numberOfLines={1} style={styles.miniTitle}>{track.name}</Text><Text numberOfLines={1} style={styles.miniFolder}>{track.folderName}</Text></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
 }
 
 function IconButton({ icon, accessibilityLabel, onPress, active = false }: { icon: string; accessibilityLabel: string; onPress: () => void; active?: boolean }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.iconButton, active && styles.activeIconButton, pressed && styles.pressed]}><Text style={[styles.iconButtonText, active && styles.activeIconButtonText]}>{icon}</Text></Pressable>;
 }
 
-function PlayerScreen({ track, artwork, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange }: { track: Track; artwork: string | null; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void }) {
+function PlayerScreen({ track, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange }: { track: Track; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
-      <ScreenHeader title="PLAYER" subtitle="NOW PLAYING" />
-      <View style={styles.playerArt}><AlbumArt label={track.name} size={300} uri={artwork} /></View>
+      <ScreenHeader subtitle="NOW PLAYING" />
+      <View style={styles.playerArt}><AlbumArt label={track.name} size={300} uri={artwork} loading={artworkLoading} /></View>
       <Text style={styles.playerTitle} numberOfLines={2}>{track.name}</Text>
       <Text style={styles.playerFolder}>{track.folderName}</Text>
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
       <View style={styles.timeRow}><Text style={styles.timeText}>{formatTime(status.currentTime)}</Text><Text style={styles.timeText}>{formatTime(status.duration)}</Text></View>
-      <View style={styles.transportRow}><IconButton icon={mode === 'shuffle' ? '⤨' : '⇄'} accessibilityLabel={mode === 'shuffle' ? 'Shuffle on. Switch to regular order' : 'Shuffle off. Switch to shuffle'} active={mode === 'shuffle'} onPress={() => onModeChange(mode === 'shuffle' ? 'sequential' : 'shuffle')} /><SmallButton label="|<" onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} onPress={onTogglePlay} /><SmallButton label="|>" onPress={onNext} /><IconButton icon={repeatMode === 'one' ? '↻1' : '↻'} accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
+      <View style={styles.transportRow}><IconButton icon={mode === 'shuffle' ? '⤨' : '⇄'} accessibilityLabel={mode === 'shuffle' ? 'Shuffle on. Switch to regular order' : 'Shuffle off. Switch to shuffle'} active={mode === 'shuffle'} onPress={() => onModeChange(mode === 'shuffle' ? 'sequential' : 'shuffle')} /><SmallButton label="|<" onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} onPress={onTogglePlay} /><SmallButton label="|>" onPress={onNext} /><IconButton icon={repeatMode === 'one' ? '↻¹' : '↻'} accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
     </ScrollView>
   );
 }
@@ -612,18 +619,16 @@ const styles = StyleSheet.create({
   wordmark: { color: '#000000', fontSize: 30, fontWeight: '700', letterSpacing: -1 },
   label: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginTop: 4 },
   count: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginLeft: 10 },
-  backButton: { paddingBottom: 4, paddingTop: 4 },
-  backText: { color: '#000000', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   screenTitleRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingTop: 20 },
   pageHeading: { paddingTop: 20 },
   screenTitle: { color: '#000000', fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
   screenSubtitle: { color: '#555555', fontSize: 12, marginTop: 5 },
   helperText: { color: '#555555', fontSize: 12, lineHeight: 18, marginTop: 14 },
-  button: { alignItems: 'center', backgroundColor: '#000000', minWidth: 112, paddingHorizontal: 14, paddingVertical: 12 },
+  button: { alignItems: 'center', backgroundColor: '#000000', height: 48, justifyContent: 'center', minWidth: 112, paddingHorizontal: 14 },
   secondaryButton: { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 1 },
   buttonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
   secondaryButtonText: { color: '#000000' },
-  smallButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, paddingHorizontal: 10, paddingVertical: 10 },
+  smallButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 48, justifyContent: 'center', paddingHorizontal: 0, width: 48 },
   activeSmallButton: { backgroundColor: '#000000' },
   smallButtonText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
   activeSmallButtonText: { color: '#FFFFFF' },
@@ -664,6 +669,7 @@ const styles = StyleSheet.create({
   miniButtonText: { color: '#000000', fontSize: 15, fontWeight: '700' },
   artPlaceholder: { alignItems: 'center', backgroundColor: '#EEEEEE', borderColor: '#000000', borderWidth: 1, justifyContent: 'center' },
   artPlaceholderText: { color: '#000000', fontSize: 22, fontWeight: '700', letterSpacing: -1 },
+  artLoadingText: { color: '#444444', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 10 },
   playerScreen: { paddingBottom: 28 },
   playerArt: { alignItems: 'center', paddingTop: 26 },
   playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 24 },
@@ -672,10 +678,10 @@ const styles = StyleSheet.create({
   progressFill: { backgroundColor: '#000000', height: 8 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
   timeText: { color: '#444444', fontSize: 11 },
-  transportRow: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'center', marginTop: 18 },
-  iconButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
+  transportRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 18, width: '100%' },
+  iconButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 48, justifyContent: 'center', width: 48 },
   activeIconButton: { backgroundColor: '#000000' },
-  iconButtonText: { color: '#000000', fontSize: 20, fontWeight: '700' },
+  iconButtonText: { color: '#000000', fontSize: 21, fontWeight: '700', includeFontPadding: false, lineHeight: 26, textAlign: 'center', width: 30 },
   activeIconButtonText: { color: '#FFFFFF' },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
   preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
