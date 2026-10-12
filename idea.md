@@ -1,37 +1,36 @@
 # mp3fy
 
-`mp3fy` will be an Android-only mobile application for identifying music that is currently playing on the device, in a simple workflow inspired by Shazam.
+`mp3fy` will be an Android-only mobile application for finding and displaying MP3 files that already exist in folders selected by the user.
 
-The intended result is the exact matched song information—at minimum the title and artist, with additional metadata where available. Any MP3 conversion workflow remains a separate product decision and is not being implemented yet.
+The app will not download music, create MP3 files, identify songs, or access storage without the user's explicit folder selection. Its purpose is to provide a focused view of the user's existing MP3 collection across selected phone and SD-card storage locations.
 
-## Planned recognition approach
+## Planned workflow
 
-1. The user taps an **Identify** action.
-2. The app captures a short audio sample.
-3. The sample is sent to ShazamKit for matching against the Shazam catalog.
-4. The app displays the matched song information and stops capturing audio.
+1. The user taps **Add folder**.
+2. Android's system folder picker asks the user to choose a directory.
+3. The app stores access to that selected directory.
+4. The user can add additional directories from internal storage or an SD card.
+5. The app scans the selected directory trees and displays the MP3 files it finds.
 
-The app should support two input paths where Android allows them:
+The app should support multiple selected folders, including four or five folders and more. If the same file is reachable through overlapping selected folders, the interface should avoid showing confusing duplicates.
 
-- **Microphone input:** identify music coming from the phone speaker or another audible source.
-- **Android playback capture:** on Android 10 and later, capture eligible audio being played by another app, subject to user approval and the source app's capture policy.
+## Scope boundaries
 
-The app may detect that headphones are connected, but that does not automatically grant access to the audio routed through them. A headset microphone captures nearby sound, not the private earphone output.
-
-This repository is intentionally starting as an empty product foundation. The recognition experience, supported audio sources, permissions, native Android integration, and user experience will be defined before functionality is implemented.
+- Read and display existing `.mp3` files only.
+- Do not download, stream, rip, convert, move, rename, delete, or copy audio files.
+- Do not identify songs from audio.
+- Do not require access to the entire device; use Android's user-selected folder access.
+- Preserve the user's existing files and folder structure.
 
 ## Initial principles
 
 - Android-only, mobile-first experience
-- Clear, lightweight interface
-- Explicit user consent for microphone and playback capture
-- Capture audio only for as long as recognition requires
-- Respect for copyright, platform rules, permissions, and applicable laws
-- Privacy-conscious handling of audio and recognition results
+- User-controlled storage access
+- Fast, searchable, readable MP3 listing
+- Clear handling of missing, duplicate, or inaccessible files
+- No background scanning unless the user explicitly starts it
+- Privacy-conscious and read-only by default
 
-## Known technical boundaries
+## Known technical direction
 
-- Playback capture is not guaranteed for every Android app or every type of audio.
-- The source app can disallow playback capture, and protected audio may not be available.
-- Playback capture requires Android's system permission flow and native Android APIs.
-- The current Expo scaffold will need a native Android module or custom development build before recognition can be integrated.
+Android's Storage Access Framework can let the user select a directory and grant access to the files and subdirectories inside it. Multiple folder selections can be supported by repeating that user-driven selection flow. The current Expo scaffold will need a native Android module or custom development build to integrate this storage access and recursive scanning behavior.

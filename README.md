@@ -1,40 +1,38 @@
 # mp3fy
 
-`mp3fy` is an Android-only mobile application concept for identifying music that is currently playing on the device, through a simple workflow inspired by Shazam.
+`mp3fy` is an Android-only mobile application for finding and displaying MP3 files that already exist in folders selected by the user.
 
-The intended result is the exact matched song information—at minimum the title and artist, with additional metadata where available. Any MP3 conversion workflow remains a separate product decision and is not being implemented yet.
-
-The project is currently at the foundation stage. No recognition, audio capture, conversion, download, upload, or playback functionality has been implemented.
+The app will not download music, create MP3 files, identify songs, or access storage without the user's explicit folder selection. It is intended to provide a focused view of an existing MP3 collection across selected phone and SD-card storage locations.
 
 ## Current status
 
-This repository contains only the initial Expo mobile-app scaffold. The app is intended for Android devices only.
+The project is currently at the foundation stage. This repository contains only the initial Expo mobile-app scaffold. The folder picker, storage scanning, MP3 listing, and search experience have not been implemented yet.
 
-## Planned song recognition
+## Planned workflow
 
-The planned flow is:
+1. The user taps **Add folder**.
+2. Android's system folder picker asks the user to choose a directory.
+3. `mp3fy` remembers access to that selected directory.
+4. The user can add additional directories from internal storage or an SD card.
+5. The app recursively scans the selected directories and displays the MP3 files it finds.
 
-1. The user taps **Identify**.
-2. `mp3fy` captures a short audio sample.
-3. ShazamKit matches the sample against the Shazam catalog.
-4. The app displays the matched song title and artist, then stops capturing.
+The app should support four or five selected folders and more. If selected folders overlap, the interface should avoid presenting the same file as a confusing duplicate.
 
-Two audio-input paths may be supported:
+## Scope boundaries
 
-- **Microphone input:** identifies music coming from the phone speaker or another audible source.
-- **Android playback capture:** on Android 10 and later, can capture eligible audio being played by another app after the user approves Android's system capture prompt.
-
-Playback capture is subject to the source app's capture policy, audio type, Android version, user profile, and protected-content restrictions. Detecting connected headphones does not itself grant access to their private audio output; a headset microphone captures nearby sound rather than the earphone output.
-
-Recognition should be implemented with ShazamKit rather than a custom fingerprinting system. The current Expo scaffold will require a native Android module or a custom development build before ShazamKit and playback capture can be integrated.
+- Read and display existing `.mp3` files only.
+- Do not download, stream, rip, convert, move, rename, delete, or copy audio files.
+- Do not identify songs from audio.
+- Do not request unrestricted access to the entire device when user-selected folder access is sufficient.
+- Preserve the user's existing files and folder structure.
 
 ## Technology
 
 - Expo
 - React Native
 - TypeScript
-- ShazamKit (planned)
-- Android playback capture APIs (planned)
+- Android Storage Access Framework (planned)
+- Native Android module or custom Expo development build (planned)
 
 ## Getting started
 
@@ -45,14 +43,12 @@ npm install
 npm start
 ```
 
-The scaffold can be opened on an Android emulator or Android device. The recognition feature will require a custom native development build; Expo Go alone will not provide the required native integrations.
+The scaffold can be opened on an Android emulator or Android device. The folder-picker and storage-scanning features will require a custom native development build; Expo Go alone will not provide the required native integration.
 
-## Product considerations
+## Privacy and storage access
 
-Future design and implementation will account for user privacy, explicit recording consent, responsible media handling, copyright, Android platform rules, and applicable laws. Audio capture should stop as soon as the recognition attempt finishes.
+The app should use Android's user-controlled folder picker so the user chooses exactly which directories `mp3fy` can read. The app should scan only those selected directory trees and remain read-only by default.
 
-## Official references
+## Official reference
 
-- [ShazamKit](https://developer.apple.com/shazamkit/)
-- [ShazamKit for Android](https://developer.apple.com/shazamkit/android/)
-- [Android playback capture](https://developer.android.com/media/platform/av-capture)
+- [Android Storage Access Framework: access documents and other files](https://developer.android.com/training/data-storage/shared/documents-files)
