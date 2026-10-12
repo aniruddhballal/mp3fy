@@ -27,6 +27,7 @@ type Folder = { name: string; uri: string };
 type Track = { folderName: string; folderUri: string; name: string; uri: string };
 type PlaybackMode = 'shuffle' | 'sequential';
 type RepeatMode = 'all' | 'one';
+type PlaybackSnapshot = { position: number; playing: boolean };
 type Screen =
   | { kind: 'folders' }
   | { kind: 'songs'; folderUri: string }
@@ -367,7 +368,7 @@ function Mp3fyApp() {
     await applyArtwork(artwork);
   }, [artworkCache, artworkMediaCache, player]);
 
-  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number) => {
+  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, snapshot?: PlaybackSnapshot) => {
     const nextTrack = nextQueue[nextIndex];
     if (!nextTrack) return;
     player.clear();
@@ -380,7 +381,14 @@ function Mp3fyApp() {
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
     callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextTrack.name, artist: 'mp3fy' });
-    player.play();
+    if (snapshot) {
+      void player.seekTo(Math.max(0, snapshot.position)).catch(() => undefined).then(() => {
+        if (snapshot.playing) player.play();
+        else player.pause();
+      });
+    } else {
+      player.play();
+    }
     void loadArtwork(nextTrack);
   }, [loadArtwork, player, repeatMode]);
 
@@ -423,8 +431,8 @@ function Mp3fyApp() {
     setMode(nextMode);
     if (!currentTrack) return;
     const nextPlayback = buildQueue(tracks, currentTrack, nextMode);
-    startPlayback(nextPlayback.queue, nextPlayback.index);
-  }, [currentTrack, startPlayback, tracks]);
+    startPlayback(nextPlayback.queue, nextPlayback.index, { position: player.currentTime, playing: player.playing });
+  }, [currentTrack, player, startPlayback, tracks]);
 
   const addFolder = useCallback(async () => {
     setIsScanning(true);
@@ -434,17 +442,13 @@ function Mp3fyApp() {
       const nextFolder: Folder = { name: selectedDirectory.name, uri: selectedDirectory.uri };
       const nextFolders = folders.some((folder) => folder.uri === nextFolder.uri) ? folders : [...folders, nextFolder];
       await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(nextFolders));
-      const nextTracks = await rescan(nextFolders);
-      if (currentTrack && nextTracks.some((track) => track.uri === currentTrack.uri)) {
-        const nextPlayback = buildQueue(nextTracks, currentTrack, mode);
-        startPlayback(nextPlayback.queue, nextPlayback.index);
-      }
+      await rescan(nextFolders);
     } catch {
       setNotice('Folder selection was cancelled or unavailable.');
     } finally {
       setIsScanning(false);
     }
-  }, [currentTrack, folders, mode, rescan, startPlayback]);
+  }, [folders, rescan]);
 
   const removeFolder = useCallback(async (folder: Folder) => {
     setIsScanning(true);
@@ -469,7 +473,7 @@ function Mp3fyApp() {
       setTracks(nextTracks);
       if (currentTrack && currentTrack.folderUri !== folder.uri) {
         const nextPlayback = buildQueue(nextTracks, currentTrack, mode);
-        startPlayback(nextPlayback.queue, nextPlayback.index);
+        startPlayback(nextPlayback.queue, nextPlayback.index, { position: player.currentTime, playing: player.playing });
       }
     } catch {
       setNotice('The folder could not be removed.');
@@ -567,7 +571,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.7</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.8</Text></View>
     </View>
   );
 }
