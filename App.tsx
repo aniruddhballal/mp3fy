@@ -226,17 +226,17 @@ async function loadEmbeddedArtwork(uri: string): Promise<string | null> {
   }
 }
 
-function ActionButton({ label, onPress, secondary = false }: { label: string; onPress: () => void; secondary?: boolean }) {
+function ActionButton({ label, onPress, secondary = false, transport = false }: { label: string; onPress: () => void; secondary?: boolean; transport?: boolean }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondaryButton, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.button, transport && styles.transportMainButton, secondary && styles.secondaryButton, pressed && styles.pressed]}>
       <Text style={[styles.buttonText, secondary && styles.secondaryButtonText]}>{label}</Text>
     </Pressable>
   );
 }
 
-function SmallButton({ label, onPress, active = false }: { label: string; onPress: () => void; active?: boolean }) {
+function SmallButton({ label, onPress, active = false, transport = false }: { label: string; onPress: () => void; active?: boolean; transport?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.smallButton, active && styles.activeSmallButton, pressed && styles.pressed]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.smallButton, transport && styles.transportSideButton, active && styles.activeSmallButton, pressed && styles.pressed]}>
       <Text style={[styles.smallButtonText, active && styles.activeSmallButtonText]}>{label}</Text>
     </Pressable>
   );
@@ -567,7 +567,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders.</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.5</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.6</Text></View>
     </View>
   );
 }
@@ -592,8 +592,18 @@ function MiniPlayer({ track, artwork, artworkLoading, playing, onOpen, onToggleP
   return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={track.name} size={52} uri={artwork} loading={artworkLoading} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><Text numberOfLines={1} style={styles.miniTitle}>{track.name}</Text><Text numberOfLines={1} style={styles.miniFolder}>{track.folderName}</Text></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
 }
 
-function IconButton({ icon, accessibilityLabel, onPress, active = false }: { icon: string; accessibilityLabel: string; onPress: () => void; active?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.iconButton, active && styles.activeIconButton, pressed && styles.pressed]}><Text style={[styles.iconButtonText, active && styles.activeIconButtonText]}>{icon}</Text></Pressable>;
+type TransportIconKind = 'shuffle' | 'order' | 'repeatAll' | 'repeatOne';
+
+function TransportGlyph({ kind, active }: { kind: TransportIconKind; active: boolean }) {
+  const color = active ? '#FFFFFF' : '#000000';
+  if (kind === 'repeatAll' || kind === 'repeatOne') {
+    return <View style={styles.repeatGlyph}><Text style={[styles.glyphText, { color }]}>{'\u21bb'}</Text>{kind === 'repeatOne' ? <Text style={[styles.repeatNumber, { color }]}>1</Text> : null}</View>;
+  }
+  return <Text style={[styles.glyphText, { color }]}>{kind === 'shuffle' ? '\u21c6' : '\u21c4'}</Text>;
+}
+
+function IconButton({ icon, accessibilityLabel, onPress, active = false, transport = false }: { icon: TransportIconKind; accessibilityLabel: string; onPress: () => void; active?: boolean; transport?: boolean }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.iconButton, transport && styles.transportSideButton, active && styles.activeIconButton, pressed && styles.pressed]}><TransportGlyph kind={icon} active={active} /></Pressable>;
 }
 
 function PlayerScreen({ track, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange }: { track: Track; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void }) {
@@ -605,7 +615,7 @@ function PlayerScreen({ track, artwork, artworkLoading, status, progress, progre
       <Text style={styles.playerFolder}>{track.folderName}</Text>
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
       <View style={styles.timeRow}><Text style={styles.timeText}>{formatTime(status.currentTime)}</Text><Text style={styles.timeText}>{formatTime(status.duration)}</Text></View>
-      <View style={styles.transportRow}><IconButton icon={mode === 'shuffle' ? '⤨' : '⇄'} accessibilityLabel={mode === 'shuffle' ? 'Shuffle on. Switch to regular order' : 'Shuffle off. Switch to shuffle'} active={mode === 'shuffle'} onPress={() => onModeChange(mode === 'shuffle' ? 'sequential' : 'shuffle')} /><SmallButton label="|<" onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} onPress={onTogglePlay} /><SmallButton label="|>" onPress={onNext} /><IconButton icon={repeatMode === 'one' ? '↻¹' : '↻'} accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
+      <View style={styles.transportRow}><IconButton icon={mode === 'shuffle' ? 'shuffle' : 'order'} transport accessibilityLabel={mode === 'shuffle' ? 'Shuffle on. Switch to regular order' : 'Shuffle off. Switch to shuffle'} active={mode === 'shuffle'} onPress={() => onModeChange(mode === 'shuffle' ? 'sequential' : 'shuffle')} /><SmallButton label="|<" transport onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} transport onPress={onTogglePlay} /><SmallButton label="|>" transport onPress={onNext} /><IconButton icon={repeatMode === 'one' ? 'repeatOne' : 'repeatAll'} transport accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
     </ScrollView>
   );
 }
@@ -678,11 +688,14 @@ const styles = StyleSheet.create({
   progressFill: { backgroundColor: '#000000', height: 8 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
   timeText: { color: '#444444', fontSize: 11 },
-  transportRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 18, width: '100%' },
+  transportRow: { alignItems: 'center', flexDirection: 'row', gap: 6, justifyContent: 'center', marginTop: 18, width: '100%' },
   iconButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 48, justifyContent: 'center', width: 48 },
+  transportSideButton: { flex: 1, minWidth: 0, width: 'auto' },
+  transportMainButton: { flex: 2.25, minWidth: 0, paddingHorizontal: 0 },
   activeIconButton: { backgroundColor: '#000000' },
-  iconButtonText: { color: '#000000', fontSize: 21, fontWeight: '700', includeFontPadding: false, lineHeight: 26, textAlign: 'center', width: 30 },
-  activeIconButtonText: { color: '#FFFFFF' },
+  glyphText: { fontSize: 27, fontWeight: '400', includeFontPadding: false, lineHeight: 30, textAlign: 'center', width: 32 },
+  repeatGlyph: { alignItems: 'center', height: 30, justifyContent: 'center', position: 'relative', width: 32 },
+  repeatNumber: { bottom: 0, fontSize: 12, fontWeight: '700', lineHeight: 14, position: 'absolute', right: 1 },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
   preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', flex: 1, justifyContent: 'center', padding: 24 },
