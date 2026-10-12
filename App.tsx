@@ -333,26 +333,23 @@ function Mp3fyApp() {
 
   const loadArtwork = useCallback(async (track: Track) => {
     const request = ++artworkRequest.current;
+    const applyArtwork = async (dataUri: string | null) => {
+      const mediaArtwork = dataUri
+        ? artworkMediaCache.get(track.uri) ?? await materializeArtwork(dataUri, track.uri)
+        : null;
+      if (mediaArtwork) artworkMediaCache.set(track.uri, mediaArtwork);
+      if (request !== artworkRequest.current) return;
+      setCurrentArtwork(mediaArtwork ?? dataUri);
+      player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
+    };
+
     if (artworkCache.has(track.uri)) {
-      const cached = artworkCache.get(track.uri) ?? null;
-      setCurrentArtwork(cached);
-      if (cached) {
-        const mediaArtwork = artworkMediaCache.get(track.uri) ?? await materializeArtwork(cached, track.uri);
-        if (mediaArtwork) artworkMediaCache.set(track.uri, mediaArtwork);
-        player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
-      }
+      await applyArtwork(artworkCache.get(track.uri) ?? null);
       return;
     }
     const artwork = await loadEmbeddedArtwork(track.uri);
     artworkCache.set(track.uri, artwork);
-    if (request === artworkRequest.current) {
-      setCurrentArtwork(artwork);
-      if (artwork) {
-        const mediaArtwork = await materializeArtwork(artwork, track.uri);
-        artworkMediaCache.set(track.uri, mediaArtwork);
-        player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
-      }
-    }
+    await applyArtwork(artwork);
   }, [artworkCache, artworkMediaCache, player]);
 
   const startPlayback = useCallback((nextQueue: Track[], nextIndex: number) => {
