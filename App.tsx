@@ -4,6 +4,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   AppState,
   BackHandler,
   FlatList,
@@ -324,6 +325,38 @@ function AlbumArt({ uri, size, label, loading = false }: { uri: string | null; s
   );
 }
 
+function MarqueeText({ text, textStyle, style }: { text: string; textStyle: object; style?: object }) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const animation = useRef<Animated.CompositeAnimation | null>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [textWidth, setTextWidth] = useState(0);
+
+  useEffect(() => {
+    animation.current?.stop();
+    translateX.setValue(0);
+    if (containerWidth > 0 && textWidth > containerWidth + 1) {
+      const distance = textWidth - containerWidth;
+      animation.current = Animated.loop(Animated.sequence([
+        Animated.delay(1000),
+        Animated.timing(translateX, { duration: Math.max(1400, distance * 28), toValue: -distance, useNativeDriver: true }),
+        Animated.delay(800),
+        Animated.timing(translateX, { duration: Math.max(1400, distance * 28), toValue: 0, useNativeDriver: true }),
+        Animated.delay(1000),
+      ]));
+      animation.current.start();
+    }
+    return () => animation.current?.stop();
+  }, [containerWidth, text, textWidth, translateX]);
+
+  return (
+    <View onLayout={(event) => setContainerWidth(event.nativeEvent.layout.width)} style={[styles.marqueeViewport, style]}>
+      <Animated.View style={[styles.marqueeContent, { transform: [{ translateX }] }]}>
+        <Text numberOfLines={1} onLayout={(event) => setTextWidth(event.nativeEvent.layout.width)} style={[textStyle, styles.marqueeText]}>{text}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function App() {
   return <SafeAreaProvider><Mp3fyApp /></SafeAreaProvider>;
 }
@@ -606,7 +639,7 @@ function Mp3fyApp() {
             <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
           ) : null}
 
-          {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onNext={playNext} /> : null}
+          {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onNext={playNext} /> : null}
         </View>
       </SafeAreaView>
 
@@ -675,8 +708,8 @@ function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: 
   );
 }
 
-function MiniPlayer({ track, artwork, artworkLoading, playing, onOpen, onTogglePlay, onNext }: { track: Track; artwork: string | null; artworkLoading: boolean; playing: boolean; onOpen: () => void; onTogglePlay: () => void; onNext: () => void }) {
-  return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={track.name} size={52} uri={artwork} loading={artworkLoading} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><Text numberOfLines={1} style={styles.miniTitle}>{track.name}</Text><Text numberOfLines={1} style={styles.miniFolder}>{track.folderName}</Text></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
+function MiniPlayer({ track, metadata, artwork, artworkLoading, playing, onOpen, onTogglePlay, onNext }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; playing: boolean; onOpen: () => void; onTogglePlay: () => void; onNext: () => void }) {
+  return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={metadata.title} size={52} uri={artwork} loading={artworkLoading} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><MarqueeText style={styles.miniTitleViewport} text={metadata.title} textStyle={styles.miniTitle} /><MarqueeText style={styles.miniArtistViewport} text={metadata.artist || track.folderName} textStyle={styles.miniFolder} /></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
 }
 
 type TransportIconKind = 'shuffle' | 'order' | 'repeatAll' | 'repeatOne';
@@ -706,8 +739,8 @@ function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progre
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
       <ScreenHeader subtitle="NOW PLAYING" right={<Text numberOfLines={1} style={styles.playerHeaderFolder}>{track.folderName}</Text>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
-      <Text style={styles.playerTitle} numberOfLines={2}>{metadata.title}</Text>
-      {metadata.artist ? <Text style={styles.playerArtist} numberOfLines={1}>{metadata.artist}</Text> : null}
+      <MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} />
+      {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
       {metadata.album || metadata.trackNumber ? <View style={styles.metadataDetails}>
         {metadata.album ? <Text style={styles.metadataItem} numberOfLines={1}>{metadata.album}</Text> : null}
         {metadata.trackNumber ? <Text style={styles.metadataItem} numberOfLines={1}>#{metadata.trackNumber}</Text> : null}
@@ -772,6 +805,8 @@ const styles = StyleSheet.create({
   miniLabel: { color: '#555555', fontSize: 8, fontWeight: '700', letterSpacing: 1 },
   miniTitle: { color: '#000000', fontSize: 12, fontWeight: '700', marginTop: 3 },
   miniFolder: { color: '#555555', fontSize: 10, marginTop: 2 },
+  miniTitleViewport: { marginTop: 3 },
+  miniArtistViewport: { marginTop: 2 },
   miniButton: { alignItems: 'center', height: 42, justifyContent: 'center', width: 42 },
   miniButtonText: { color: '#000000', fontSize: 15, fontWeight: '700' },
   artPlaceholder: { alignItems: 'center', backgroundColor: '#EEEEEE', borderColor: '#000000', borderWidth: 1, justifyContent: 'center' },
@@ -782,6 +817,8 @@ const styles = StyleSheet.create({
   playerArt: { alignItems: 'center', paddingTop: 18 },
   playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 16 },
   playerArtist: { color: '#555555', fontSize: 14, marginTop: 4 },
+  playerTitleViewport: { marginTop: 0 },
+  playerArtistViewport: { marginTop: 0 },
   metadataDetails: { flexDirection: 'row', gap: 14, marginTop: 4 },
   metadataItem: { color: '#555555', flexShrink: 1, fontSize: 11 },
   progressTrack: { backgroundColor: '#DDDDDD', height: 8, marginTop: 16, overflow: 'hidden' },
@@ -801,6 +838,9 @@ const styles = StyleSheet.create({
   repeatOneNumber: { fontSize: 10, fontWeight: '700', includeFontPadding: false, left: 31, lineHeight: 11, position: 'absolute', top: 3 },
   glyphBar: { height: 2, position: 'absolute' },
   glyphArrowHead: { borderBottomColor: 'transparent', borderBottomWidth: 3, borderLeftWidth: 5, borderTopColor: 'transparent', borderTopWidth: 3, height: 0, left: 15, position: 'absolute', width: 0 },
+  marqueeViewport: { overflow: 'hidden' },
+  marqueeContent: { alignSelf: 'flex-start', flexDirection: 'row' },
+  marqueeText: { flexShrink: 0 },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
   preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', flex: 1, justifyContent: 'center', padding: 24 },
