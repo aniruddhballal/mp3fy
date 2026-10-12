@@ -498,7 +498,7 @@ function Mp3fyApp() {
           <View style={styles.container}>
             <View style={styles.startupLoading}>
               <ActivityIndicator color="#000000" />
-              <Text style={styles.notice}>Loading library.</Text>
+              <Text style={styles.notice}>Loading library...</Text>
             </View>
           </View>
         </SafeAreaView>
