@@ -357,6 +357,20 @@ function MarqueeText({ text, textStyle, style, alignRight = false }: { text: str
       <Animated.View style={[styles.marqueeContent, { transform: [{ translateX }], width: Math.max(containerWidth, textWidth) }]}>
         <Text numberOfLines={1} ellipsizeMode="clip" style={[textStyle, styles.marqueeText, { textAlign: alignRight && textWidth <= containerWidth ? 'right' : 'left', width: Math.max(containerWidth, textWidth) }]}>{text}</Text>
       </Animated.View>
+      {containerWidth > 0 && textWidth > containerWidth + 1 ? <>
+        <View pointerEvents="none" style={[styles.marqueeFade, styles.marqueeFadeLeft]}>
+          <View style={[styles.marqueeFadeBand, { opacity: 0.95, width: 5 }]} />
+          <View style={[styles.marqueeFadeBand, { opacity: 0.7, width: 7 }]} />
+          <View style={[styles.marqueeFadeBand, { opacity: 0.4, width: 8 }]} />
+          <View style={[styles.marqueeFadeBand, { opacity: 0.12, width: 8 }]} />
+        </View>
+        <View pointerEvents="none" style={[styles.marqueeFade, styles.marqueeFadeRight]}>
+          <View style={[styles.marqueeFadeBand, { opacity: 0.12, width: 8 }]} />
+          <View style={[styles.marqueeFadeBand, { opacity: 0.4, width: 8 }]} />
+          <View style={[styles.marqueeFadeBand, { opacity: 0.7, width: 7 }]} />
+          <View style={[styles.marqueeFadeBand, { opacity: 0.95, width: 5 }]} />
+        </View>
+      </> : null}
       <Text onTextLayout={(event) => {
         const width = event.nativeEvent.lines.reduce((largest, line) => Math.max(largest, line.width), 0);
         if (width > 0 && width !== textWidth) setTextWidth(Math.ceil(width));
@@ -695,7 +709,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.4</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.5</Text></View>
     </View>
   );
 }
@@ -850,6 +864,10 @@ const styles = StyleSheet.create({
   glyphArrowHead: { borderBottomColor: 'transparent', borderBottomWidth: 3, borderLeftWidth: 5, borderTopColor: 'transparent', borderTopWidth: 3, height: 0, left: 15, position: 'absolute', width: 0 },
   marqueeViewport: { overflow: 'hidden' },
   marqueeContent: { alignSelf: 'flex-start', flexDirection: 'row' },
+  marqueeFade: { bottom: 0, flexDirection: 'row', position: 'absolute', top: 0, width: 28 },
+  marqueeFadeLeft: { left: 0 },
+  marqueeFadeRight: { right: 0 },
+  marqueeFadeBand: { backgroundColor: '#FFFFFF', height: '100%' },
   marqueeMeasure: { left: 0, opacity: 0, position: 'absolute', top: 0, width: 10000 },
   marqueeText: { flexShrink: 0 },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
