@@ -416,7 +416,7 @@ function Mp3fyApp() {
       player.seekTo(0).catch(() => undefined);
       return;
     }
-    player.previous();
+      player.previous();
   }, [player, queue, queueIndex, status.currentTime]);
 
   const updateQueuePreference = useCallback((nextMode: PlaybackMode) => {
@@ -498,7 +498,7 @@ function Mp3fyApp() {
           <View style={styles.container}>
             <View style={styles.startupLoading}>
               <ActivityIndicator color="#000000" />
-              <Text style={styles.notice}>Loading library...</Text>
+              <Text style={styles.notice}>Loading library.</Text>
             </View>
           </View>
         </SafeAreaView>
@@ -597,16 +597,17 @@ type TransportIconKind = 'shuffle' | 'order' | 'repeatAll' | 'repeatOne';
 function TransportGlyph({ kind, active }: { kind: TransportIconKind; active: boolean }) {
   const color = active ? '#FFFFFF' : '#000000';
   if (kind === 'repeatAll' || kind === 'repeatOne') {
-    return <View style={[styles.iconFrame, styles.repeatGlyph]}><Text style={[styles.glyphText, { color }]}>{'\u21bb'}</Text>{kind === 'repeatOne' ? <View pointerEvents="none" style={styles.repeatOneCenter}><Text style={[styles.repeatOneNumber, { color }]}>1</Text></View> : null}</View>;
+    // The ring is identical in both states; repeat-one just adds a small raised "1" (like an exponent) in the free space to its right.
+    return <View style={styles.repeatFrame}><Text style={[styles.glyphText, styles.repeatRing, { color }]}>{'\u21bb'}</Text>{kind === 'repeatOne' ? <Text style={[styles.repeatOneNumber, { color }]}>1</Text> : null}</View>;
   }
   const bar = (left: number, top: number, width: number) => <View style={[styles.glyphBar, { backgroundColor: color, left, top, width }]} />;
   const head = (top: number) => <View style={[styles.glyphArrowHead, { borderLeftColor: color, top }]} />;
   if (kind === 'shuffle') {
     // Two lines that cross over each other, both ending in arrows.
-    return <View style={styles.iconFrame}>{bar(1, 8, 8)}{bar(1, 22, 8)}<View style={[styles.glyphBar, { backgroundColor: color, left: 5.8, top: 15, width: 18.4, transform: [{ rotate: '49.4deg' }] }]} /><View style={[styles.glyphBar, { backgroundColor: color, left: 5.8, top: 15, width: 18.4, transform: [{ rotate: '-49.4deg' }] }]} />{bar(21, 8, 5)}{bar(21, 22, 5)}{head(5)}{head(19)}</View>;
+    return <View style={styles.smallIconFrame}>{bar(0, 5, 5)}{bar(0, 13, 5)}<View style={[styles.glyphBar, { backgroundColor: color, left: 3.3, top: 9, width: 11.3, transform: [{ rotate: '45deg' }] }]} /><View style={[styles.glyphBar, { backgroundColor: color, left: 3.3, top: 9, width: 11.3, transform: [{ rotate: '-45deg' }] }]} />{bar(13, 5, 3)}{bar(13, 13, 3)}{head(3)}{head(11)}</View>;
   }
   // Regular order: two straight parallel arrows that never cross.
-  return <View style={styles.iconFrame}>{bar(1, 8, 25)}{bar(1, 22, 25)}{head(5)}{head(19)}</View>;
+  return <View style={styles.smallIconFrame}>{bar(0, 5, 16)}{bar(0, 13, 16)}{head(3)}{head(11)}</View>;
 }
 
 function IconButton({ icon, accessibilityLabel, onPress, active = false, transport = false }: { icon: TransportIconKind; accessibilityLabel: string; onPress: () => void; active?: boolean; transport?: boolean }) {
@@ -702,11 +703,12 @@ const styles = StyleSheet.create({
   activeIconButton: { backgroundColor: '#000000' },
   iconFrame: { alignItems: 'center', height: 32, justifyContent: 'center', width: 32 },
   glyphText: { fontSize: 27, fontWeight: '400', includeFontPadding: false, lineHeight: 28, textAlign: 'center', width: 32 },
-  repeatGlyph: { position: 'relative' },
-  repeatOneCenter: { alignItems: 'center', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
-  repeatOneNumber: { fontSize: 11, fontWeight: '700', includeFontPadding: false, lineHeight: 12, textAlign: 'center' },
+  smallIconFrame: { height: 18, width: 20 },
+  repeatFrame: { alignItems: 'center', height: 32, justifyContent: 'center', width: 40 },
+  repeatRing: { transform: [{ translateY: -3 }] },
+  repeatOneNumber: { fontSize: 10, fontWeight: '700', includeFontPadding: false, left: 31, lineHeight: 11, position: 'absolute', top: 3 },
   glyphBar: { height: 2, position: 'absolute' },
-  glyphArrowHead: { borderBottomColor: 'transparent', borderBottomWidth: 4, borderLeftWidth: 7, borderTopColor: 'transparent', borderTopWidth: 4, height: 0, left: 24, position: 'absolute', width: 0 },
+  glyphArrowHead: { borderBottomColor: 'transparent', borderBottomWidth: 3, borderLeftWidth: 5, borderTopColor: 'transparent', borderTopWidth: 3, height: 0, left: 15, position: 'absolute', width: 0 },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
   preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', flex: 1, justifyContent: 'center', padding: 24 },
