@@ -25,6 +25,7 @@ const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
 
 type Folder = { name: string; uri: string };
 type Track = { folderName: string; folderUri: string; name: string; uri: string };
+type TrackMetadata = { title: string; artist: string; album: string; trackNumber: string };
 type PlaybackMode = 'shuffle' | 'sequential';
 type RepeatMode = 'all' | 'one';
 type PlaybackSnapshot = { position: number; playing: boolean };
@@ -94,6 +95,15 @@ function formatTime(seconds: number): string {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
 
+function fallbackMetadata(track: Track): TrackMetadata {
+  const baseName = track.name.replace(/\.mp3$/i, '').trim();
+  const separator = baseName.indexOf(' - ');
+  if (separator > 0) {
+    return { title: baseName.slice(separator + 3).trim() || baseName, artist: baseName.slice(0, separator).trim(), album: '', trackNumber: '' };
+  }
+  return { title: baseName, artist: '', album: '', trackNumber: '' };
+}
+
 function readAscii(bytes: Uint8Array, start: number, length: number): string {
   return String.fromCharCode(...bytes.slice(start, start + length));
 }
@@ -112,6 +122,25 @@ function findZero(bytes: Uint8Array, start: number): number {
     if (bytes[index] === 0) return index;
   }
   return bytes.length;
+}
+
+function decodeId3Text(bytes: Uint8Array, encoding: number): string {
+  let end = bytes.length;
+  if (encoding === 1 || encoding === 2) {
+    while (end > 0 && bytes[end - 1] === 0) end -= 1;
+  } else {
+    end = findZero(bytes, 0);
+  }
+  const value = bytes.slice(0, end);
+  if (!value.length) return '';
+  try {
+    if (encoding === 1) return new TextDecoder('utf-16').decode(value).replace(/\0/g, '').trim();
+    if (encoding === 2) return new TextDecoder('utf-16be').decode(value).replace(/\0/g, '').trim();
+    if (encoding === 3) return new TextDecoder('utf-8').decode(value).replace(/\0/g, '').trim();
+  } catch {
+    // Fall through to a byte-preserving fallback for runtimes without TextDecoder support.
+  }
+  return String.fromCharCode(...value).replace(/\0/g, '').trim();
 }
 
 function encodeBase64(bytes: Uint8Array): string {
@@ -217,13 +246,46 @@ function parseEmbeddedArtwork(bytes: Uint8Array): string | null {
   return null;
 }
 
-async function loadEmbeddedArtwork(uri: string): Promise<string | null> {
+function parseEmbeddedMetadata(bytes: Uint8Array, fallback: TrackMetadata): TrackMetadata {
+  if (bytes.length < 10 || readAscii(bytes, 0, 3) !== 'ID3') return fallback;
+  const version = bytes[3];
+  if (version < 2 || version > 4) return fallback;
+  const tagEnd = Math.min(bytes.length, 10 + readSyncSafe(bytes, 6));
+  const fields: Record<string, keyof TrackMetadata> = version === 2
+    ? { TT2: 'title', TP1: 'artist', TAL: 'album', TRK: 'trackNumber' }
+    : { TIT2: 'title', TPE1: 'artist', TALB: 'album', TRCK: 'trackNumber' };
+  const metadata = { ...fallback };
+  let cursor = 10;
+
+  while (cursor + (version === 2 ? 6 : 10) <= tagEnd) {
+    const idLength = version === 2 ? 3 : 4;
+    const frameId = readAscii(bytes, cursor, idLength);
+    if (!frameId.trim() || /^\0+$/.test(frameId)) break;
+    const frameSize = version === 2
+      ? (bytes[cursor + 3] << 16) | (bytes[cursor + 4] << 8) | bytes[cursor + 5]
+      : readFrameSize(bytes, cursor + 4, version);
+    const headerSize = version === 2 ? 6 : 10;
+    const payloadStart = cursor + headerSize;
+    const payloadEnd = Math.min(tagEnd, payloadStart + frameSize);
+    if (payloadEnd <= payloadStart) break;
+    const field = fields[frameId];
+    if (field && payloadStart < payloadEnd) {
+      const value = decodeId3Text(bytes.slice(payloadStart + 1, payloadEnd), bytes[payloadStart]);
+      if (value) metadata[field] = value;
+    }
+    cursor = payloadEnd;
+  }
+  return metadata;
+}
+
+async function loadEmbeddedTrackDetails(uri: string, fallback: TrackMetadata): Promise<{ artwork: string | null; metadata: TrackMetadata }> {
   try {
     const file = new File(uri);
     const bytes = await file.bytes();
-    return parseEmbeddedArtwork(bytes.slice(0, 4 * 1024 * 1024));
+    const sample = bytes.slice(0, 4 * 1024 * 1024);
+    return { artwork: parseEmbeddedArtwork(sample), metadata: parseEmbeddedMetadata(sample, fallback) };
   } catch {
-    return null;
+    return { artwork: null, metadata: fallback };
   }
 }
 
@@ -259,11 +321,13 @@ function Mp3fyApp() {
   const player = useAudioPlaylist({ sources: [], updateInterval: 500, loop: 'all' });
   const status = useAudioPlaylistStatus(player);
   const artworkCache = useRef(new Map<string, string | null>()).current;
+  const metadataCache = useRef(new Map<string, TrackMetadata>()).current;
   const artworkMediaCache = useRef(new Map<string, string | null>()).current;
   const artworkRequest = useRef(0);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
+  const [currentMetadata, setCurrentMetadata] = useState<TrackMetadata | null>(null);
   const [currentArtwork, setCurrentArtwork] = useState<string | null>(null);
   const [isArtworkLoading, setIsArtworkLoading] = useState(false);
   const [queue, setQueue] = useState<Track[]>([]);
@@ -319,11 +383,12 @@ function Mp3fyApp() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (currentTrack && nextState !== 'unknown') {
-        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: currentTrack.name, artist: 'mp3fy', artworkUrl: artworkMediaCache.get(currentTrack.uri) ?? undefined });
+        const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
+        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: artworkMediaCache.get(currentTrack.uri) ?? undefined });
       }
     });
     return () => subscription.remove();
-  }, [artworkMediaCache, currentTrack, player]);
+  }, [artworkMediaCache, currentMetadata, currentTrack, player]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -348,25 +413,28 @@ function Mp3fyApp() {
   const loadArtwork = useCallback(async (track: Track) => {
     const request = ++artworkRequest.current;
     setIsArtworkLoading(true);
-    const applyArtwork = async (dataUri: string | null) => {
+    const applyArtwork = async (dataUri: string | null, metadata: TrackMetadata) => {
       const mediaArtwork = dataUri
         ? artworkMediaCache.get(track.uri) ?? await materializeArtwork(dataUri, track.uri)
         : null;
       if (mediaArtwork) artworkMediaCache.set(track.uri, mediaArtwork);
       if (request !== artworkRequest.current) return;
+      setCurrentMetadata(metadata);
       setCurrentArtwork(mediaArtwork ?? dataUri);
       setIsArtworkLoading(false);
-      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
+      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
     };
 
-    if (artworkCache.has(track.uri)) {
-      await applyArtwork(artworkCache.get(track.uri) ?? null);
+    const cachedMetadata = metadataCache.get(track.uri);
+    if (artworkCache.has(track.uri) && cachedMetadata) {
+      await applyArtwork(artworkCache.get(track.uri) ?? null, cachedMetadata);
       return;
     }
-    const artwork = await loadEmbeddedArtwork(track.uri);
-    artworkCache.set(track.uri, artwork);
-    await applyArtwork(artwork);
-  }, [artworkCache, artworkMediaCache, player]);
+    const details = await loadEmbeddedTrackDetails(track.uri, fallbackMetadata(track));
+    artworkCache.set(track.uri, details.artwork);
+    metadataCache.set(track.uri, details.metadata);
+    await applyArtwork(details.artwork, details.metadata);
+  }, [artworkCache, artworkMediaCache, metadataCache, player]);
 
   const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, snapshot?: PlaybackSnapshot) => {
     const nextTrack = nextQueue[nextIndex];
@@ -378,9 +446,11 @@ function Mp3fyApp() {
     setQueue(nextQueue);
     setQueueIndex(nextIndex);
     setCurrentTrack(nextTrack);
+    const nextMetadata = fallbackMetadata(nextTrack);
+    setCurrentMetadata(nextMetadata);
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
-    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextTrack.name, artist: 'mp3fy' });
+    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy' });
     if (snapshot) {
       void player.seekTo(Math.max(0, snapshot.position)).catch(() => undefined).then(() => {
         if (snapshot.playing) player.play();
@@ -400,7 +470,9 @@ function Mp3fyApp() {
     setCurrentTrack(nextTrack);
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
-    callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: nextTrack.name, artist: 'mp3fy' });
+    const nextMetadata = fallbackMetadata(nextTrack);
+    setCurrentMetadata(nextMetadata);
+    callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy' });
     void loadArtwork(nextTrack);
   }, [currentTrack?.uri, loadArtwork, player, queue, status.currentIndex]);
 
@@ -520,7 +592,7 @@ function Mp3fyApp() {
           ) : screen.kind === 'songs' && selectedFolder ? (
             <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} />
           ) : currentTrack ? (
-            <PlayerScreen track={currentTrack} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
+            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
           ) : null}
 
           {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onNext={playNext} /> : null}
@@ -571,7 +643,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.8</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.3.9</Text></View>
     </View>
   );
 }
@@ -618,13 +690,17 @@ function IconButton({ icon, accessibilityLabel, onPress, active = false, transpo
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.iconButton, transport && styles.transportSideButton, active && styles.activeIconButton, pressed && styles.pressed]}><TransportGlyph kind={icon} active={active} /></Pressable>;
 }
 
-function PlayerScreen({ track, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange }: { track: Track; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void }) {
+function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
-      <ScreenHeader subtitle="NOW PLAYING" />
-      <View style={styles.playerArt}><AlbumArt label={track.name} size={300} uri={artwork} loading={artworkLoading} /></View>
-      <Text style={styles.playerTitle} numberOfLines={2}>{track.name}</Text>
-      <Text style={styles.playerFolder}>{track.folderName}</Text>
+      <ScreenHeader subtitle="NOW PLAYING" right={<Text numberOfLines={1} style={styles.playerHeaderFolder}>{track.folderName}</Text>} />
+      <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
+      <Text style={styles.playerTitle} numberOfLines={2}>{metadata.title}</Text>
+      {metadata.artist ? <Text style={styles.playerArtist} numberOfLines={1}>{metadata.artist}</Text> : null}
+      {metadata.album || metadata.trackNumber ? <View style={styles.metadataDetails}>
+        {metadata.album ? <Text style={styles.metadataItem} numberOfLines={1}>{metadata.album}</Text> : null}
+        {metadata.trackNumber ? <Text style={styles.metadataItem} numberOfLines={1}>#{metadata.trackNumber}</Text> : null}
+      </View> : null}
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
       <View style={styles.timeRow}><Text style={styles.timeText}>{formatTime(status.currentTime)}</Text><Text style={styles.timeText}>{formatTime(status.duration)}</Text></View>
       <View style={styles.transportRow}><IconButton icon={mode === 'shuffle' ? 'shuffle' : 'order'} transport accessibilityLabel={mode === 'shuffle' ? 'Shuffle on. Switch to regular order' : 'Shuffle off. Switch to shuffle'} active={mode === 'shuffle'} onPress={() => onModeChange(mode === 'shuffle' ? 'sequential' : 'shuffle')} /><SmallButton label="|<" transport onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} transport onPress={onTogglePlay} /><SmallButton label="|>" transport onPress={onNext} /><IconButton icon={repeatMode === 'one' ? 'repeatOne' : 'repeatAll'} transport accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
@@ -691,10 +767,13 @@ const styles = StyleSheet.create({
   artPlaceholderText: { color: '#000000', fontSize: 22, fontWeight: '700', letterSpacing: -1 },
   artLoadingText: { color: '#444444', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 10 },
   playerScreen: { flexGrow: 1, justifyContent: 'center', paddingBottom: 28, paddingTop: 18 },
-  playerArt: { alignItems: 'center', paddingTop: 26 },
-  playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 24 },
-  playerFolder: { color: '#555555', fontSize: 14, marginTop: 6 },
-  progressTrack: { backgroundColor: '#DDDDDD', height: 8, marginTop: 22, overflow: 'hidden' },
+  playerHeaderFolder: { alignSelf: 'flex-start', color: '#000000', flexShrink: 1, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, marginLeft: 12, marginTop: 8, maxWidth: 170, textTransform: 'uppercase' },
+  playerArt: { alignItems: 'center', paddingTop: 18 },
+  playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 16 },
+  playerArtist: { color: '#555555', fontSize: 14, marginTop: 4 },
+  metadataDetails: { flexDirection: 'row', gap: 14, marginTop: 4 },
+  metadataItem: { color: '#555555', flexShrink: 1, fontSize: 11 },
+  progressTrack: { backgroundColor: '#DDDDDD', height: 8, marginTop: 16, overflow: 'hidden' },
   progressFill: { backgroundColor: '#000000', height: 8 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
   timeText: { color: '#444444', fontSize: 11 },
