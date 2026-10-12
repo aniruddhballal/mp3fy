@@ -12,7 +12,8 @@ The app will not download music, create MP3 files, identify songs, or access sto
 4. The user can add additional directories from internal storage or an SD card.
 5. The app scans the selected directory trees and displays the MP3 files it finds.
 6. The user taps a track to play it locally.
-7. The user can seek, pause, resume, skip, go back, shuffle, play in filename order, repeat one track, and choose a queue covering the current folder or all selected folders.
+7. The user can seek, pause, resume, skip, go back, shuffle, play in filename order, repeat the current folder, or repeat one track. Playback stays within the folder containing the selected track.
+8. Embedded album artwork is shown in the player and background media controls when it is available in the MP3 metadata.
 
 The app should support multiple selected folders, including four or five folders and more. If the same file is reachable through overlapping selected folders, the interface should avoid showing confusing duplicates.
 

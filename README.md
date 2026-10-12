@@ -6,9 +6,9 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 ## Current status
 
-The first playable build is implemented. It includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-one, and queue scope selection.
+The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, background controls, and loading feedback during startup and folder operations. Playback queues always stay within the folder where the track was selected.
 
-The current Android release is version `1.2.0` (`versionCode` `4`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`.
+The current Android release is version `1.3.0` (`versionCode` `5`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`.
 
 ## Planned workflow
 
@@ -18,7 +18,9 @@ The current Android release is version `1.2.0` (`versionCode` `4`). APK files ke
 4. The user can add additional directories from internal storage or an SD card.
 5. The app recursively scans the selected directories and displays the MP3 files it finds.
 6. Tapping a track starts local playback.
-7. Playback can shuffle or follow filename order, operate within the current folder or across all selected folders, repeat one track, seek within a track, and move backward or forward through the queue.
+7. Playback can shuffle or follow filename order within the current folder, repeat the folder or current track, seek within a track, and move backward or forward through the queue.
+
+Embedded album artwork in supported MP3 ID3 tags is extracted to the app cache and shown in the player and media controls when available.
 
 The app should support four or five selected folders and more. If selected folders overlap, the interface should avoid presenting the same file as a confusing duplicate.
 
