@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { Directory, File } from 'expo-file-system';
+import { setAudioModeAsync, useAudioPlaylist, useAudioPlaylistStatus, type AudioPlaylistStatus } from 'expo-audio';
+import { Directory, File, Paths } from 'expo-file-system';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -119,6 +119,48 @@ function encodeBase64(bytes: Uint8Array): string {
   return output;
 }
 
+function decodeBase64(value: string): Uint8Array {
+  const clean = value.replace(/\s/g, '').replace(/=+$/, '');
+  const bytes = new Uint8Array(Math.floor((clean.length * 3) / 4));
+  let buffer = 0;
+  let bitCount = 0;
+  let offset = 0;
+  for (const character of clean) {
+    const digit = BASE64.indexOf(character);
+    if (digit < 0) continue;
+    buffer = (buffer << 6) | digit;
+    bitCount += 6;
+    if (bitCount >= 8) {
+      bitCount -= 8;
+      bytes[offset] = (buffer >> bitCount) & 0xff;
+      offset += 1;
+    }
+  }
+  return bytes.slice(0, offset);
+}
+
+function artworkCacheKey(uri: string): string {
+  let hash = 0;
+  for (let index = 0; index < uri.length; index += 1) hash = ((hash << 5) - hash + uri.charCodeAt(index)) | 0;
+  return Math.abs(hash).toString(16);
+}
+
+async function materializeArtwork(dataUri: string, trackUri: string): Promise<string | null> {
+  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/s);
+  if (!match) return null;
+  try {
+    const extension = match[1].split('/')[1] || 'jpg';
+    const file = new File(Paths.cache, 'mp3fy-artwork', `${artworkCacheKey(trackUri)}.${extension}`);
+    if (!file.exists) {
+      file.create({ intermediates: true });
+      file.write(decodeBase64(match[2]));
+    }
+    return file.uri;
+  } catch {
+    return null;
+  }
+}
+
 function parseEmbeddedArtwork(bytes: Uint8Array): string | null {
   if (bytes.length < 10 || readAscii(bytes, 0, 3) !== 'ID3') return null;
   const version = bytes[3];
@@ -203,9 +245,10 @@ export default function App() {
 }
 
 function Mp3fyApp() {
-  const player = useAudioPlayer(null, { updateInterval: 500, keepAudioSessionActive: true });
-  const status = useAudioPlayerStatus(player);
+  const player = useAudioPlaylist({ sources: [], updateInterval: 500, loop: 'all' });
+  const status = useAudioPlaylistStatus(player);
   const artworkCache = useRef(new Map<string, string | null>()).current;
+  const artworkMediaCache = useRef(new Map<string, string | null>()).current;
   const artworkRequest = useRef(0);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -222,6 +265,7 @@ function Mp3fyApp() {
   const [progressWidth, setProgressWidth] = useState(0);
   const [folderActions, setFolderActions] = useState<Folder | null>(null);
   const [folderToConfirm, setFolderToConfirm] = useState<Folder | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const folderCounts = useMemo(() => folders.map((folder) => ({
     folder,
@@ -258,17 +302,17 @@ function Mp3fyApp() {
       } catch {
         setNotice('Saved folders could not be restored.');
       }
-    });
+    }).finally(() => setIsInitialized(true));
   }, [rescan]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (currentTrack && nextState !== 'unknown') {
-        player.setActiveForLockScreen(true, { title: currentTrack.name, artist: 'mp3fy', artworkUrl: currentArtwork ?? undefined });
+        player.setActiveForLockScreen(true, { title: currentTrack.name, artist: 'mp3fy', artworkUrl: artworkMediaCache.get(currentTrack.uri) ?? undefined });
       }
     });
     return () => subscription.remove();
-  }, [currentArtwork, currentTrack, player]);
+  }, [artworkMediaCache, currentTrack, player]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -295,38 +339,55 @@ function Mp3fyApp() {
     if (artworkCache.has(track.uri)) {
       const cached = artworkCache.get(track.uri) ?? null;
       setCurrentArtwork(cached);
-      if (cached) player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: cached });
+      if (cached) {
+        const mediaArtwork = artworkMediaCache.get(track.uri) ?? await materializeArtwork(cached, track.uri);
+        if (mediaArtwork) artworkMediaCache.set(track.uri, mediaArtwork);
+        player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
+      }
       return;
     }
     const artwork = await loadEmbeddedArtwork(track.uri);
     artworkCache.set(track.uri, artwork);
     if (request === artworkRequest.current) {
       setCurrentArtwork(artwork);
-      if (artwork) player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: artwork });
+      if (artwork) {
+        const mediaArtwork = await materializeArtwork(artwork, track.uri);
+        artworkMediaCache.set(track.uri, mediaArtwork);
+        player.updateLockScreenMetadata({ title: track.name, artist: 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
+      }
     }
-  }, [artworkCache, player]);
+  }, [artworkCache, artworkMediaCache, player]);
 
   const startPlayback = useCallback((nextQueue: Track[], nextIndex: number) => {
     const nextTrack = nextQueue[nextIndex];
     if (!nextTrack) return;
+    player.clear();
+    nextQueue.forEach((track) => player.add(track.uri));
+    player.loop = repeatOne ? 'single' : 'all';
+    player.skipTo(nextIndex);
     setQueue(nextQueue);
     setQueueIndex(nextIndex);
     setCurrentTrack(nextTrack);
     setCurrentArtwork(null);
-    player.replace(nextTrack.uri);
     player.setActiveForLockScreen(true, { title: nextTrack.name, artist: 'mp3fy' });
     player.play();
     void loadArtwork(nextTrack);
-  }, [loadArtwork, player]);
+  }, [loadArtwork, player, repeatOne]);
 
   useEffect(() => {
-    if (!status.didJustFinish || !queue.length || queueIndex < 0) return;
-    if (repeatOne) {
-      player.seekTo(0).then(() => player.play()).catch(() => undefined);
-      return;
-    }
-    startPlayback(queue, queueIndex + 1 >= queue.length ? 0 : queueIndex + 1);
-  }, [player, queue, queueIndex, repeatOne, startPlayback, status.didJustFinish]);
+    if (!queue.length || status.currentIndex < 0 || status.currentIndex >= queue.length) return;
+    const nextTrack = queue[status.currentIndex];
+    setQueueIndex(status.currentIndex);
+    if (currentTrack?.uri === nextTrack.uri) return;
+    setCurrentTrack(nextTrack);
+    setCurrentArtwork(null);
+    player.updateLockScreenMetadata({ title: nextTrack.name, artist: 'mp3fy' });
+    void loadArtwork(nextTrack);
+  }, [currentTrack?.uri, loadArtwork, player, queue, status.currentIndex]);
+
+  useEffect(() => {
+    player.loop = repeatOne ? 'single' : 'all';
+  }, [player, repeatOne]);
 
   const playTrack = useCallback((track: Track) => {
     const nextPlayback = buildQueue(tracks, track, mode, 'folder');
@@ -336,8 +397,8 @@ function Mp3fyApp() {
   }, [mode, startPlayback, tracks]);
 
   const playNext = useCallback(() => {
-    if (queue.length) startPlayback(queue, queueIndex + 1 >= queue.length ? 0 : queueIndex + 1);
-  }, [queue, queueIndex, startPlayback]);
+    if (queue.length) player.next();
+  }, [player, queue.length]);
 
   const playPrevious = useCallback(() => {
     if (!queue.length) return;
@@ -345,17 +406,16 @@ function Mp3fyApp() {
       player.seekTo(0).catch(() => undefined);
       return;
     }
-    startPlayback(queue, queueIndex <= 0 ? queue.length - 1 : queueIndex - 1);
-  }, [player, queue, queueIndex, startPlayback, status.currentTime]);
+      player.previous();
+  }, [player, queue, queueIndex, status.currentTime]);
 
   const updateQueuePreference = useCallback((nextMode: PlaybackMode, nextScope: PlaybackScope) => {
     setMode(nextMode);
     setScope(nextScope);
     if (!currentTrack) return;
     const nextPlayback = buildQueue(tracks, currentTrack, nextMode, nextScope);
-    setQueue(nextPlayback.queue);
-    setQueueIndex(nextPlayback.index);
-  }, [currentTrack, tracks]);
+    startPlayback(nextPlayback.queue, nextPlayback.index);
+  }, [currentTrack, startPlayback, tracks]);
 
   const addFolder = useCallback(async () => {
     try {
@@ -366,13 +426,12 @@ function Mp3fyApp() {
       const nextTracks = await rescan(nextFolders);
       if (currentTrack && nextTracks.some((track) => track.uri === currentTrack.uri)) {
         const nextPlayback = buildQueue(nextTracks, currentTrack, mode, scope);
-        setQueue(nextPlayback.queue);
-        setQueueIndex(nextPlayback.index);
+        startPlayback(nextPlayback.queue, nextPlayback.index);
       }
     } catch {
       setNotice('Folder selection was cancelled or unavailable.');
     }
-  }, [currentTrack, folders, mode, rescan, scope]);
+  }, [currentTrack, folders, mode, rescan, scope, startPlayback]);
 
   const removeFolder = useCallback(async (folder: Folder) => {
     const nextFolders = folders.filter((item) => item.uri !== folder.uri);
@@ -382,7 +441,7 @@ function Mp3fyApp() {
     if (screen.kind === 'songs' && screen.folderUri === folder.uri) setScreen({ kind: 'folders' });
     if (currentTrack?.folderUri === folder.uri) {
       player.pause();
-      player.replace(null);
+      player.clear();
       player.setActiveForLockScreen(false);
       setCurrentTrack(null);
       setCurrentArtwork(null);
@@ -396,10 +455,9 @@ function Mp3fyApp() {
     setIsScanning(false);
     if (currentTrack && currentTrack.folderUri !== folder.uri) {
       const nextPlayback = buildQueue(nextTracks, currentTrack, mode, scope);
-      setQueue(nextPlayback.queue);
-      setQueueIndex(nextPlayback.index);
+      startPlayback(nextPlayback.queue, nextPlayback.index);
     }
-  }, [currentTrack, folders, mode, player, screen, scope]);
+  }, [currentTrack, folders, mode, player, screen, scope, startPlayback]);
 
   const openFolder = (folder: Folder) => setScreen({ kind: 'songs', folderUri: folder.uri });
   const seek = (event: { nativeEvent: { locationX: number } }) => {
@@ -412,6 +470,22 @@ function Mp3fyApp() {
   const openPlayerFromMini = () => {
     if (currentTrack) setScreen({ kind: 'player', returnTo: screen.kind === 'songs' ? 'songs' : 'folders' });
   };
+
+  if (!isInitialized) {
+    return (
+      <>
+        <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
+        <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
+          <View style={styles.container}>
+            <View style={styles.startupLoading}>
+              <ActivityIndicator color="#000000" />
+              <Text style={styles.notice}>Loading library.</Text>
+            </View>
+          </View>
+        </SafeAreaView>
+      </>
+    );
+  }
 
   return (
     <>
@@ -474,7 +548,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders.</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.1.0</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.2.0</Text></View>
     </View>
   );
 }
@@ -496,7 +570,7 @@ function MiniPlayer({ track, artwork, playing, onOpen, onTogglePlay, onNext }: {
   return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={track.name} size={52} uri={artwork} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><Text numberOfLines={1} style={styles.miniTitle}>{track.name}</Text><Text numberOfLines={1} style={styles.miniFolder}>{track.folderName}</Text></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
 }
 
-function PlayerScreen({ track, artwork, status, progress, progressWidth, mode, scope, repeatOne, onBack, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onScopeChange, onRepeatChange }: { track: Track; artwork: string | null; status: ReturnType<typeof useAudioPlayerStatus>; progress: number; progressWidth: number; mode: PlaybackMode; scope: PlaybackScope; repeatOne: boolean; onBack: () => void; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onScopeChange: (scope: PlaybackScope) => void; onRepeatChange: (repeat: boolean) => void }) {
+function PlayerScreen({ track, artwork, status, progress, progressWidth, mode, scope, repeatOne, onBack, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onScopeChange, onRepeatChange }: { track: Track; artwork: string | null; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; scope: PlaybackScope; repeatOne: boolean; onBack: () => void; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onScopeChange: (scope: PlaybackScope) => void; onRepeatChange: (repeat: boolean) => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
       <ScreenHeader title="PLAYER" subtitle="NOW PLAYING" onBack={onBack} />
@@ -555,6 +629,7 @@ const styles = StyleSheet.create({
   playText: { color: '#000000', fontSize: 9, fontWeight: '700', letterSpacing: 0.6 },
   search: { borderBottomColor: '#000000', borderBottomWidth: 1, color: '#000000', fontSize: 15, marginTop: 18, paddingBottom: 9, paddingHorizontal: 0 },
   loading: { alignItems: 'flex-start', flex: 1, justifyContent: 'center' },
+  startupLoading: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   emptyState: { alignItems: 'flex-start', flex: 1, justifyContent: 'center' },
   rule: { backgroundColor: '#000000', height: 4, marginBottom: 20, width: 42 },
   title: { color: '#000000', fontSize: 24, fontWeight: '700' },
