@@ -127,15 +127,26 @@ function findZero(bytes: Uint8Array, start: number): number {
 function decodeId3Text(bytes: Uint8Array, encoding: number): string {
   let end = bytes.length;
   if (encoding === 1 || encoding === 2) {
-    while (end > 0 && bytes[end - 1] === 0) end -= 1;
-  } else {
-    end = findZero(bytes, 0);
+    while (end >= 2 && bytes[end - 2] === 0 && bytes[end - 1] === 0) end -= 2;
+    let littleEndian = encoding === 1;
+    let offset = 0;
+    if (end >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+      littleEndian = true;
+      offset = 2;
+    } else if (end >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+      littleEndian = false;
+      offset = 2;
+    }
+    const codeUnits: number[] = [];
+    for (let index = offset; index + 1 < end; index += 2) {
+      codeUnits.push(littleEndian ? bytes[index] | (bytes[index + 1] << 8) : (bytes[index] << 8) | bytes[index + 1]);
+    }
+    return String.fromCharCode(...codeUnits).replace(/\0/g, '').trim();
   }
+  end = findZero(bytes, 0);
   const value = bytes.slice(0, end);
   if (!value.length) return '';
   try {
-    if (encoding === 1) return new TextDecoder('utf-16').decode(value).replace(/\0/g, '').trim();
-    if (encoding === 2) return new TextDecoder('utf-16be').decode(value).replace(/\0/g, '').trim();
     if (encoding === 3) return new TextDecoder('utf-8').decode(value).replace(/\0/g, '').trim();
   } catch {
     // Fall through to a byte-preserving fallback for runtimes without TextDecoder support.
