@@ -416,7 +416,7 @@ function Mp3fyApp() {
       player.seekTo(0).catch(() => undefined);
       return;
     }
-      player.previous();
+    player.previous();
   }, [player, queue, queueIndex, status.currentTime]);
 
   const updateQueuePreference = useCallback((nextMode: PlaybackMode) => {
@@ -498,7 +498,7 @@ function Mp3fyApp() {
           <View style={styles.container}>
             <View style={styles.startupLoading}>
               <ActivityIndicator color="#000000" />
-              <Text style={styles.notice}>Loading library.</Text>
+              <Text style={styles.notice}>Loading library...</Text>
             </View>
           </View>
         </SafeAreaView>
@@ -597,9 +597,16 @@ type TransportIconKind = 'shuffle' | 'order' | 'repeatAll' | 'repeatOne';
 function TransportGlyph({ kind, active }: { kind: TransportIconKind; active: boolean }) {
   const color = active ? '#FFFFFF' : '#000000';
   if (kind === 'repeatAll' || kind === 'repeatOne') {
-    return <View style={[styles.iconFrame, styles.repeatGlyph]}><Text style={[styles.glyphText, { color }]}>{'\u21bb'}</Text>{kind === 'repeatOne' ? <View style={[styles.repeatBadge, { borderColor: color }]}><Text style={[styles.repeatNumber, { color }]}>1</Text></View> : null}</View>;
+    return <View style={[styles.iconFrame, styles.repeatGlyph]}><Text style={[styles.glyphText, { color }]}>{'\u21bb'}</Text>{kind === 'repeatOne' ? <View pointerEvents="none" style={styles.repeatOneCenter}><Text style={[styles.repeatOneNumber, { color }]}>1</Text></View> : null}</View>;
   }
-  return <View style={styles.iconFrame}><Text style={[styles.glyphText, { color }]}>{kind === 'shuffle' ? '\u21c6' : '\u21c4'}</Text></View>;
+  const bar = (left: number, top: number, width: number) => <View style={[styles.glyphBar, { backgroundColor: color, left, top, width }]} />;
+  const head = (top: number) => <View style={[styles.glyphArrowHead, { borderLeftColor: color, top }]} />;
+  if (kind === 'shuffle') {
+    // Two lines that cross over each other, both ending in arrows.
+    return <View style={styles.iconFrame}>{bar(1, 8, 8)}{bar(1, 22, 8)}<View style={[styles.glyphBar, { backgroundColor: color, left: 5.8, top: 15, width: 18.4, transform: [{ rotate: '49.4deg' }] }]} /><View style={[styles.glyphBar, { backgroundColor: color, left: 5.8, top: 15, width: 18.4, transform: [{ rotate: '-49.4deg' }] }]} />{bar(21, 8, 5)}{bar(21, 22, 5)}{head(5)}{head(19)}</View>;
+  }
+  // Regular order: two straight parallel arrows that never cross.
+  return <View style={styles.iconFrame}>{bar(1, 8, 25)}{bar(1, 22, 25)}{head(5)}{head(19)}</View>;
 }
 
 function IconButton({ icon, accessibilityLabel, onPress, active = false, transport = false }: { icon: TransportIconKind; accessibilityLabel: string; onPress: () => void; active?: boolean; transport?: boolean }) {
@@ -696,8 +703,10 @@ const styles = StyleSheet.create({
   iconFrame: { alignItems: 'center', height: 32, justifyContent: 'center', width: 32 },
   glyphText: { fontSize: 27, fontWeight: '400', includeFontPadding: false, lineHeight: 28, textAlign: 'center', width: 32 },
   repeatGlyph: { position: 'relative' },
-  repeatBadge: { alignItems: 'center', borderWidth: 1, bottom: 2, height: 11, justifyContent: 'center', position: 'absolute', right: 0, width: 11 },
-  repeatNumber: { fontSize: 7, fontWeight: '700', lineHeight: 8 },
+  repeatOneCenter: { alignItems: 'center', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
+  repeatOneNumber: { fontSize: 11, fontWeight: '700', includeFontPadding: false, lineHeight: 12, textAlign: 'center' },
+  glyphBar: { height: 2, position: 'absolute' },
+  glyphArrowHead: { borderBottomColor: 'transparent', borderBottomWidth: 4, borderLeftWidth: 7, borderTopColor: 'transparent', borderTopWidth: 4, height: 0, left: 24, position: 'absolute', width: 0 },
   preferenceHeading: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginTop: 24 },
   preferenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 },
   modalBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)', flex: 1, justifyContent: 'center', padding: 24 },
