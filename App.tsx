@@ -327,7 +327,7 @@ function AlbumArt({ uri, size, label, loading = false }: { uri: string | null; s
   );
 }
 
-function MarqueeText({ text, textStyle, style, alignRight = false }: { text: string; textStyle: object; style?: object; alignRight?: boolean }) {
+function MarqueeText({ text, textStyle, style, alignRight = false, fadeColor = '#FFFFFF', fadeTransparentColor = 'rgba(255,255,255,0)' }: { text: string; textStyle: object; style?: object; alignRight?: boolean; fadeColor?: string; fadeTransparentColor?: string }) {
   const translateX = useRef(new Animated.Value(0)).current;
   const animation = useRef<Animated.CompositeAnimation | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -361,10 +361,10 @@ function MarqueeText({ text, textStyle, style, alignRight = false }: { text: str
       </Animated.View>
       {containerWidth > 0 && textWidth > containerWidth + 1 ? <>
         <Animated.View pointerEvents="none" style={[styles.marqueeFade, styles.marqueeFadeLeft, { opacity: translateX.interpolate({ inputRange: [-8, 0], outputRange: [1, 0], extrapolate: 'clamp' }) }]}>
-          <LinearGradient colors={['#FFFFFF', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.marqueeFadeGradient} />
+          <LinearGradient colors={[fadeColor, fadeTransparentColor]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.marqueeFadeGradient} />
         </Animated.View>
         <View pointerEvents="none" style={[styles.marqueeFade, styles.marqueeFadeRight]}>
-          <LinearGradient colors={['rgba(255,255,255,0)', '#FFFFFF']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.marqueeFadeGradient} />
+          <LinearGradient colors={[fadeTransparentColor, fadeColor]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.marqueeFadeGradient} />
         </View>
       </> : null}
       <Text onTextLayout={(event) => {
@@ -705,7 +705,7 @@ function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, 
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.6</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.7</Text></View>
     </View>
   );
 }
@@ -720,7 +720,7 @@ function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: 
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} renderItem={({ item }) => {
         const isPlaying = currentTrack?.uri === item.uri;
-        return <Pressable onPress={() => onPlayTrack(item)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}><Text numberOfLines={1} style={styles.trackName}>{item.name}</Text></View></Pressable>;
+        return <Pressable onPress={() => onPlayTrack(item)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}>{isPlaying ? <MarqueeText style={styles.trackNameViewport} text={item.name} textStyle={styles.trackName} fadeColor="#F2F2F2" fadeTransparentColor="rgba(242,242,242,0)" /> : <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackName}>{item.name}</Text>}</View></Pressable>;
       }} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No MP3 files</Text><Text style={styles.description}>This folder does not currently contain any MP3 files.</Text></View>}
     </View>
   );
@@ -806,6 +806,7 @@ const styles = StyleSheet.create({
   trackIndicator: { backgroundColor: 'transparent', height: 38, marginRight: 10, width: 4 },
   activeTrackIndicator: { backgroundColor: '#000000' },
   trackCopy: { flex: 1, marginRight: 12 },
+  trackNameViewport: { minWidth: 0 },
   trackName: { color: '#000000', fontSize: 15, fontWeight: '600' },
   search: { borderBottomColor: '#000000', borderBottomWidth: 1, color: '#000000', fontSize: 15, marginTop: 18, paddingBottom: 9, paddingHorizontal: 0 },
   loading: { alignItems: 'flex-start', flex: 1, justifyContent: 'center' },
