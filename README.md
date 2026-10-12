@@ -1,12 +1,12 @@
 # mp3fy
 
-`mp3fy` is an Android-only mobile application for finding and displaying MP3 files that already exist in folders selected by the user.
+`mp3fy` is an Android-only, read-only local MP3 player. The user selects folders from phone or SD-card storage, and `mp3fy` scans those folders for existing `.mp3` files and plays them locally.
 
-The app will not download music, create MP3 files, identify songs, or access storage without the user's explicit folder selection. It is intended to provide a focused view of an existing MP3 collection across selected phone and SD-card storage locations.
+The app will not download music, create MP3 files, identify songs, or access storage without the user's explicit folder selection. It does not modify the user's files.
 
 ## Current status
 
-The project is currently at the foundation stage. This repository contains only the initial Expo mobile-app scaffold. The folder picker, storage scanning, MP3 listing, and search experience have not been implemented yet.
+The first playable build is implemented. It includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-one, and queue scope selection.
 
 ## Planned workflow
 
@@ -15,13 +15,15 @@ The project is currently at the foundation stage. This repository contains only 
 3. `mp3fy` remembers access to that selected directory.
 4. The user can add additional directories from internal storage or an SD card.
 5. The app recursively scans the selected directories and displays the MP3 files it finds.
+6. Tapping a track starts local playback.
+7. Playback can shuffle or follow filename order, operate within the current folder or across all selected folders, repeat one track, seek within a track, and move backward or forward through the queue.
 
 The app should support four or five selected folders and more. If selected folders overlap, the interface should avoid presenting the same file as a confusing duplicate.
 
 ## Scope boundaries
 
-- Read and display existing `.mp3` files only.
-- Do not download, stream, rip, convert, move, rename, delete, or copy audio files.
+- Read, display, and play existing `.mp3` files only.
+- Do not download, rip, convert, move, rename, delete, or copy audio files.
 - Do not identify songs from audio.
 - Do not request unrestricted access to the entire device when user-selected folder access is sufficient.
 - Preserve the user's existing files and folder structure.
@@ -31,8 +33,9 @@ The app should support four or five selected folders and more. If selected folde
 - Expo
 - React Native
 - TypeScript
-- Android Storage Access Framework (planned)
-- Native Android module or custom Expo development build (planned)
+- Android Storage Access Framework
+- `expo-file-system`
+- `expo-audio`
 
 ## Getting started
 
@@ -43,11 +46,11 @@ npm install
 npm start
 ```
 
-The scaffold can be opened on an Android emulator or Android device. The folder-picker and storage-scanning features will require a custom native development build; Expo Go alone will not provide the required native integration.
+The app requires a custom native Android build for the folder picker, storage scanning, and background playback configuration. Expo Go alone is not sufficient for the complete app.
 
 ## Privacy and storage access
 
-The app should use Android's user-controlled folder picker so the user chooses exactly which directories `mp3fy` can read. The app should scan only those selected directory trees and remain read-only by default.
+The app uses Android's user-controlled folder picker so the user chooses exactly which directories `mp3fy` can read. It scans only those selected directory trees, plays only local files, and remains read-only by default.
 
 ## Official reference
 
