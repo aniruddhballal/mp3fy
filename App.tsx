@@ -591,12 +591,12 @@ function Mp3fyApp() {
     applyArtwork(mediaArtwork, details.metadata);
   }, [artworkCache, metadataCache, player]);
 
-  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number) => {
+  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, nextRepeatMode: RepeatMode = repeatMode) => {
     const nextTrack = nextQueue[nextIndex];
     if (!nextTrack) return;
     player.clear();
     nextQueue.forEach((track) => player.add({ uri: track.uri }));
-    player.loop = repeatMode === 'one' ? 'single' : 'all';
+    player.loop = nextRepeatMode === 'one' ? 'single' : 'all';
     player.skipTo(nextIndex);
     setQueue(nextQueue);
     setQueueIndex(nextIndex);
@@ -652,6 +652,36 @@ function Mp3fyApp() {
     startPlayback(nextPlayback.queue, nextPlayback.index);
     setScreen({ kind: 'player', returnTo: 'songs' });
   }, [mode, startPlayback, tracks]);
+
+  const addSong = useCallback(async () => {
+    setNotice('Selecting a song.');
+    try {
+      const selection = await File.pickFileAsync({ mimeTypes: ['audio/mpeg', 'audio/*'] });
+      if (selection.canceled) {
+        setNotice('Song selection cancelled.');
+        return;
+      }
+      const selectedFile = selection.result;
+      if (!selectedFile.name.toLowerCase().endsWith('.mp3')) {
+        setNotice('Please select an MP3 file.');
+        return;
+      }
+
+      const parentDirectory = selectedFile.parentDirectory;
+      const selectedTrack: Track = {
+        folderName: parentDirectory.name || 'Selected song',
+        folderUri: parentDirectory.uri,
+        name: selectedFile.name,
+        uri: selectedFile.uri,
+      };
+      setRepeatMode('one');
+      startPlayback([selectedTrack], 0, 'one');
+      setScreen({ kind: 'player', returnTo: 'folders' });
+      setNotice(`${selectedFile.name} selected.`);
+    } catch {
+      setNotice('Song selection was cancelled or unavailable.');
+    }
+  }, [startPlayback]);
 
   const playNext = useCallback(() => {
     if (queue.length) player.next();
@@ -767,7 +797,7 @@ function Mp3fyApp() {
       <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
         <View style={styles.container}>
           {screen.kind === 'folders' ? (
-            <FoldersScreen folders={folderCounts} tracksCount={tracks.length} isScanning={isScanning} scanningFolderUris={scanningFolderUris} notice={notice} onAddFolder={addFolder} onOpenFolder={openFolder} onLongPressFolder={setFolderActions} />
+            <FoldersScreen folders={folderCounts} tracksCount={tracks.length} isScanning={isScanning} scanningFolderUris={scanningFolderUris} notice={notice} onAddFolder={addFolder} onAddSong={addSong} onOpenFolder={openFolder} onLongPressFolder={setFolderActions} />
           ) : screen.kind === 'songs' && selectedFolder ? (
             <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} />
           ) : currentTrack ? (
@@ -819,11 +849,11 @@ function FolderArtwork({ uri }: { uri?: string | null }) {
   return uri ? <Image source={{ uri }} style={styles.folderArtwork} /> : <View style={styles.folderArtworkPlaceholder}><Text style={styles.folderArtworkPlaceholderText}>DIR</Text></View>;
 }
 
-const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
+const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onAddSong, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onAddSong: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
   return (
     <View style={styles.screen}>
       <ScreenHeader subtitle="" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
-      <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
+      <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><View style={styles.libraryActions}><ActionButton label="ADD SONG" onPress={onAddSong} secondary /><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View></View>
       {isScanning && !folders.length ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><View style={styles.folderMetaRow}><Text style={styles.folderMeta}>{item.count}</Text>{scanningFolderUris.has(item.folder.uri) ? <ActivityIndicator color="#000000" size="small" /> : null}</View></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} initialNumToRender={8} maxToRenderPerBatch={8} removeClippedSubviews windowSize={5} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
       <View style={styles.footer}><Text style={styles.footerText}>1.4.19</Text></View>
     </View>
@@ -904,6 +934,7 @@ const styles = StyleSheet.create({
   screenTitle: { color: '#000000', fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
   screenSubtitle: { color: '#555555', fontSize: 12, marginTop: 5 },
   helperText: { color: '#555555', fontSize: 12, lineHeight: 18, marginTop: 14 },
+  libraryActions: { gap: 8, marginLeft: 12 },
   button: { alignItems: 'center', backgroundColor: '#000000', height: 48, justifyContent: 'center', minWidth: 112, paddingHorizontal: 14 },
   secondaryButton: { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 1 },
   buttonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
