@@ -756,11 +756,10 @@ function FolderArtwork({ uri }: { uri?: string | null }) {
 function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; notice: string; onAddFolder: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
   return (
     <View style={styles.screen}>
-      <ScreenHeader subtitle="LOCAL MP3 PLAYER" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
+      <ScreenHeader subtitle="" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
-      <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count}</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.11</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>1.4.13</Text></View>
     </View>
   );
 }
@@ -770,8 +769,8 @@ function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: 
   const visibleTracks = useMemo(() => tracks.filter((track) => track.name.toLowerCase().includes(search.trim().toLowerCase())), [search, tracks]);
   return (
     <View style={styles.screen}>
-      <ScreenHeader subtitle="FOLDER" right={<Text style={styles.count}>{tracks.length} TRACKS</Text>} />
-      <View style={styles.pageHeading}><Text numberOfLines={2} style={styles.screenTitle}>{folder.name}</Text><Text style={styles.screenSubtitle}>Songs in this folder</Text></View>
+      <ScreenHeader subtitle="" right={<Text style={styles.count}>{tracks.length} TRACKS</Text>} />
+      <View style={styles.pageHeading}><Text numberOfLines={2} style={styles.screenTitle}>{folder.name}</Text></View>
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} renderItem={({ item }) => {
         const isPlaying = currentTrack?.uri === item.uri;
@@ -872,7 +871,7 @@ const styles = StyleSheet.create({
   title: { color: '#000000', fontSize: 24, fontWeight: '700' },
   description: { color: '#000000', fontSize: 15, lineHeight: 22, marginTop: 10, maxWidth: 340 },
   notice: { color: '#444444', fontSize: 12, lineHeight: 18, marginTop: 16 },
-  footer: { borderTopColor: '#000000', borderTopWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 10, paddingTop: 10 },
+  footer: { alignItems: 'flex-end', borderTopColor: '#000000', borderTopWidth: 1, flexDirection: 'row', justifyContent: 'flex-end', paddingBottom: 10, paddingTop: 10 },
   footerText: { color: '#000000', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
   miniPlayer: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, flexDirection: 'row', marginBottom: 10, padding: 6 },
   miniMain: { alignItems: 'center', flex: 1, flexDirection: 'row', minWidth: 0 },
