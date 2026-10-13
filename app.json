@@ -2,7 +2,7 @@
   "expo": {
     "name": "mp3fy",
     "slug": "mp3fy",
-    "version": "1.4.14",
+    "version": "1.4.15",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,12 +13,11 @@
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.mp3fy",
-      "versionCode": 29
+      "versionCode": 30
     },
     "web": {
       "favicon": "./assets/favicon.png"
