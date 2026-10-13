@@ -26,7 +26,7 @@ const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const MARQUEE_FADE_WIDTH = 28;
 
-type Folder = { name: string; uri: string };
+type Folder = { name: string; uri: string; imageUri?: string | null };
 type Track = { folderName: string; folderUri: string; name: string; uri: string };
 type TrackMetadata = { title: string; artist: string; album: string; trackNumber: string };
 type PlaybackMode = 'shuffle' | 'sequential';
@@ -58,20 +58,60 @@ async function scanDirectory(directory: Directory, folder: Folder): Promise<Trac
   return tracks;
 }
 
-async function scanFolders(folders: Folder[]): Promise<Track[]> {
+const FOLDER_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
+
+function isFolderImage(file: File) {
+  const name = file.name.toLowerCase();
+  return FOLDER_IMAGE_EXTENSIONS.some((extension) => name.endsWith(extension));
+}
+
+function folderImagePriority(file: File) {
+  const name = file.name.toLowerCase();
+  if (name.startsWith('folder.')) return 0;
+  if (name.startsWith('cover.')) return 1;
+  if (name.startsWith('artwork.')) return 2;
+  if (name.startsWith('albumart.') || name.startsWith('album-art.')) return 3;
+  if (name.startsWith('thumbnail.')) return 4;
+  if (name.startsWith('image.')) return 5;
+  return 10;
+}
+
+async function scanFolder(folder: Folder): Promise<{ folder: Folder; tracks: Track[] }> {
+  try {
+    const directory = new Directory(folder.uri);
+    const items = directory.list();
+    const image = items
+      .filter((item): item is File => item instanceof File && isFolderImage(item))
+      .sort((a, b) => folderImagePriority(a) - folderImagePriority(b) || a.name.localeCompare(b.name))[0];
+    const tracks: Track[] = [];
+    for (const item of items) {
+      if (item instanceof Directory) {
+        tracks.push(...(await scanDirectory(item, folder)));
+      } else if (item instanceof File && item.name.toLowerCase().endsWith('.mp3')) {
+        tracks.push({ folderName: folder.name, folderUri: folder.uri, name: item.name, uri: item.uri });
+      }
+    }
+    return { folder: { ...folder, imageUri: image?.uri ?? null }, tracks };
+  } catch {
+    return { folder: { ...folder, imageUri: null }, tracks: [] };
+  }
+}
+
+async function scanFolders(folders: Folder[]): Promise<{ folders: Folder[]; tracks: Track[] }> {
   const results = await Promise.all(folders.map(async (folder) => {
     try {
-      return await scanDirectory(new Directory(folder.uri), folder);
+      return await scanFolder(folder);
     } catch {
-      return [];
+      return { folder: { ...folder, imageUri: null }, tracks: [] };
     }
   }));
   const seen = new Set<string>();
-  return results.flat().filter((track) => {
+  const tracks = results.flatMap((result) => result.tracks).filter((track) => {
     if (seen.has(track.uri)) return false;
     seen.add(track.uri);
     return true;
   }).sort((a, b) => `${a.folderName}/${a.name}`.localeCompare(`${b.folderName}/${b.name}`));
+  return { folders: results.map((result) => result.folder), tracks };
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -423,11 +463,12 @@ function Mp3fyApp() {
   const rescan = useCallback(async (nextFolders: Folder[]) => {
     setFolders(nextFolders);
     setIsScanning(true);
-    const nextTracks = await scanFolders(nextFolders);
-    setTracks(nextTracks);
+    const scanResult = await scanFolders(nextFolders);
+    setFolders(scanResult.folders);
+    setTracks(scanResult.tracks);
     setIsScanning(false);
-    setNotice(nextTracks.length ? `${nextTracks.length} MP3 file${nextTracks.length === 1 ? '' : 's'} found.` : 'No MP3 files found in the selected folders.');
-    return nextTracks;
+    setNotice(scanResult.tracks.length ? `${scanResult.tracks.length} MP3 file${scanResult.tracks.length === 1 ? '' : 's'} found.` : 'No MP3 files found in the selected folders.');
+    return scanResult.tracks;
   }, []);
 
   useEffect(() => {
@@ -616,8 +657,9 @@ function Mp3fyApp() {
         setQueueIndex(-1);
         setScreen({ kind: 'folders' });
       }
-      const nextTracks = await scanFolders(nextFolders);
-      setTracks(nextTracks);
+      const scanResult = await scanFolders(nextFolders);
+      setFolders(scanResult.folders);
+      setTracks(scanResult.tracks);
     } catch {
       setNotice('The folder could not be removed.');
     } finally {
@@ -707,14 +749,18 @@ function ScreenHeader({ subtitle, right }: { subtitle: string; right?: React.Rea
   );
 }
 
+function FolderArtwork({ uri }: { uri?: string | null }) {
+  return uri ? <Image source={{ uri }} style={styles.folderArtwork} /> : <View style={styles.folderArtworkPlaceholder} />;
+}
+
 function FoldersScreen({ folders, tracksCount, isScanning, notice, onAddFolder, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; notice: string; onAddFolder: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
   return (
     <View style={styles.screen}>
       <ScreenHeader subtitle="LOCAL MP3 PLAYER" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
       <Text style={styles.helperText}>Tap a folder to open it. Long press for folder actions.</Text>
-      {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><View style={styles.folderIcon}><Text style={styles.folderIconText}>DIR</Text></View><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count} MP3 FILES</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.8</Text></View>
+      {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><Text style={styles.folderMeta}>{item.count}</Text></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
+      <View style={styles.footer}><Text style={styles.footerText}>READ-ONLY PLAYBACK</Text><Text style={styles.footerText}>1.4.9</Text></View>
     </View>
   );
 }
@@ -803,11 +849,11 @@ const styles = StyleSheet.create({
   activeSmallButtonText: { color: '#FFFFFF' },
   pressed: { opacity: 0.6 },
   folderCard: { alignItems: 'center', borderBottomColor: '#DDDDDD', borderBottomWidth: 1, flexDirection: 'row', paddingVertical: 16 },
-  folderIcon: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 42, justifyContent: 'center', width: 42 },
-  folderIconText: { color: '#000000', fontSize: 9, fontWeight: '700', letterSpacing: 0.6 },
+  folderArtwork: { borderColor: '#000000', borderWidth: 1, height: 54, width: 54 },
+  folderArtworkPlaceholder: { backgroundColor: '#EEEEEE', borderColor: '#000000', borderWidth: 1, height: 54, width: 54 },
   folderCopy: { flex: 1, marginLeft: 14 },
   folderTitle: { color: '#000000', fontSize: 16, fontWeight: '700' },
-  folderMeta: { color: '#555555', fontSize: 10, fontWeight: '700', letterSpacing: 0.7, marginTop: 5 },
+  folderMeta: { color: '#555555', fontSize: 14, fontWeight: '700', marginTop: 5 },
   chevron: { color: '#000000', fontSize: 20, paddingLeft: 14 },
   listContent: { paddingBottom: 18, paddingTop: 10 },
   trackRow: { alignItems: 'center', borderBottomColor: '#DDDDDD', borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 14 },
