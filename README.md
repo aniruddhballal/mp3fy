@@ -8,7 +8,7 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during startup and folder operations. Playback queues always stay within the folder where the track was selected.
 
-The current Android release is version `1.4.18` (`versionCode` `33`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`.
+The current Android release is version `1.4.19` (`versionCode` `34`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`.
 
 ## Planned workflow
 
@@ -88,6 +88,8 @@ The APK will be created at:
 ```text
 android/app/build/outputs/apk/release/app-release.apk
 ```
+
+Release builds enable Hermes/R8 resource shrinking, bundle compression, compressed native-library packaging, and the `arm64-v8a` production ABI by default to keep the APK small. To build for an emulator or another ABI, override the architecture property, for example `./gradlew assembleRelease -PreactNativeArchitectures=x86_64`.
 
 The local release build uses the generated debug keystore, so it is suitable for local testing and installation, not Play Store distribution. For an attached device or running emulator, this command builds and installs the release variant in one step:
 
