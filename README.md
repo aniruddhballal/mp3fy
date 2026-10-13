@@ -8,7 +8,7 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during startup and folder operations. Playback queues always stay within the folder where the track was selected.
 
-The current Android release is version `1.4.19` (`versionCode` `34`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`.
+The current Android release is version `1.4.19` (`versionCode` `34`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk` and is approximately 12 MB.
 
 ## Planned workflow
 
@@ -24,7 +24,7 @@ Embedded album artwork in supported MP3 ID3 tags is extracted to the app cache a
 
 Folder artwork can be supplied by placing an image directly inside each selected folder. `folder.jpg`, `folder.jpeg`, `folder.png`, or `folder.webp` is preferred; common names such as `cover`, `artwork`, `albumart`, `album-art`, `thumbnail`, and `image` are also recognized. If no preferred name exists, the first supported image in the folder is used.
 
-The app should support four or five selected folders and more. If selected folders overlap, the interface should avoid presenting the same file as a confusing duplicate.
+The app supports four or five selected folders and more. If selected folders overlap, the interface avoids presenting the same file as a confusing duplicate.
 
 ## Scope boundaries
 
@@ -101,6 +101,12 @@ To install the generated APK manually with Android Debug Bridge (ADB):
 
 ```bash
 adb install -r android/app/build/outputs/apk/release/app-release.apk
+```
+
+To install the checked-in root APK instead:
+
+```bash
+adb install -r mp3fy.apk
 ```
 
 ### Development build
