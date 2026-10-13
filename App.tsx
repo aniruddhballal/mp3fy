@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setAudioModeAsync, useAudioPlaylist, useAudioPlaylistStatus, type AudioPlaylistStatus } from 'expo-audio';
 import { Directory, File, Paths } from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -25,6 +25,12 @@ import { StatusBar as SystemStatusBar } from 'react-native';
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const MARQUEE_FADE_WIDTH = 28;
+const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 1000;
+const MAX_METADATA_READ_BYTES = 4 * 1024 * 1024;
+const MAX_ARTWORK_CACHE_FILES = 48;
+const MAX_ARTWORK_CACHE_BYTES = 24 * 1024 * 1024;
+const MAX_MEMORY_ARTWORK_ENTRIES = 32;
+const MAX_MEMORY_METADATA_ENTRIES = 128;
 
 type Folder = { name: string; uri: string; imageUri?: string | null };
 type Track = { folderName: string; folderUri: string; name: string; uri: string };
@@ -46,16 +52,19 @@ function callOptionalPlayerMethod(player: object, methodName: string, ...args: u
   }
 }
 
-async function scanDirectory(directory: Directory, folder: Folder): Promise<Track[]> {
-  const tracks: Track[] = [];
-  for (const item of directory.list()) {
-    if (item instanceof Directory) {
-      tracks.push(...(await scanDirectory(item, folder)));
-    } else if (item instanceof File && item.name.toLowerCase().endsWith('.mp3')) {
-      tracks.push({ folderName: folder.name, folderUri: folder.uri, name: item.name, uri: item.uri });
+function collectTracks(rootDirectory: Directory, folder: Folder, tracks: Track[], rootItems?: (Directory | File)[]) {
+  const pendingDirectories = [rootDirectory];
+  while (pendingDirectories.length) {
+    const directory = pendingDirectories.pop() as Directory;
+    const items = directory === rootDirectory && rootItems ? rootItems : directory.list();
+    for (const item of items) {
+      if (item instanceof Directory) {
+        pendingDirectories.push(item);
+      } else if (item instanceof File && item.name.toLowerCase().endsWith('.mp3')) {
+        tracks.push({ folderName: folder.name, folderUri: folder.uri, name: item.name, uri: item.uri });
+      }
     }
   }
-  return tracks;
 }
 
 const FOLDER_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
@@ -84,13 +93,7 @@ async function scanFolder(folder: Folder): Promise<{ folder: Folder; tracks: Tra
       .filter((item): item is File => item instanceof File && isFolderImage(item))
       .sort((a, b) => folderImagePriority(a) - folderImagePriority(b) || a.name.localeCompare(b.name))[0];
     const tracks: Track[] = [];
-    for (const item of items) {
-      if (item instanceof Directory) {
-        tracks.push(...(await scanDirectory(item, folder)));
-      } else if (item instanceof File && item.name.toLowerCase().endsWith('.mp3')) {
-        tracks.push({ folderName: folder.name, folderUri: folder.uri, name: item.name, uri: item.uri });
-      }
-    }
+    collectTracks(directory, folder, tracks, items);
     return { folder: { ...folder, imageUri: image?.uri ?? null }, tracks };
   } catch {
     return { folder: { ...folder, imageUri: null }, tracks: [] };
@@ -98,19 +101,24 @@ async function scanFolder(folder: Folder): Promise<{ folder: Folder; tracks: Tra
 }
 
 async function scanFolders(folders: Folder[]): Promise<{ folders: Folder[]; tracks: Track[] }> {
-  const results = await Promise.all(folders.map(async (folder) => {
-    try {
-      return await scanFolder(folder);
-    } catch {
-      return { folder: { ...folder, imageUri: null }, tracks: [] };
-    }
-  }));
+  const results: { folder: Folder; tracks: Track[] }[] = [];
+  const tracks: Track[] = [];
   const seen = new Set<string>();
-  const tracks = results.flatMap((result) => result.tracks).filter((track) => {
-    if (seen.has(track.uri)) return false;
-    seen.add(track.uri);
-    return true;
-  }).sort((a, b) => `${a.folderName}/${a.name}`.localeCompare(`${b.folderName}/${b.name}`));
+  for (const folder of folders) {
+    try {
+      const result = await scanFolder(folder);
+      results.push(result);
+      result.tracks.forEach((track) => {
+        if (!seen.has(track.uri)) {
+          seen.add(track.uri);
+          tracks.push(track);
+        }
+      });
+    } catch {
+      results.push({ folder: { ...folder, imageUri: null }, tracks: [] });
+    }
+  }
+  tracks.sort((a, b) => `${a.folderName}/${a.name}`.localeCompare(`${b.folderName}/${b.name}`));
   return { folders: results.map((result) => result.folder), tracks };
 }
 
@@ -252,6 +260,39 @@ async function materializeArtwork(dataUri: string, trackUri: string): Promise<st
   }
 }
 
+function rememberCacheValue<T>(cache: Map<string, T>, key: string, value: T, limit: number) {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > limit) cache.delete(cache.keys().next().value as string);
+}
+
+function pruneArtworkCache() {
+  try {
+    const directory = new Directory(Paths.cache, 'mp3fy-artwork');
+    if (!directory.exists) return;
+    const entries = directory.list()
+      .filter((item): item is File => item instanceof File)
+      .map((file) => {
+        const info = file.info();
+        return { file, size: info.size ?? 0, modified: info.modificationTime ?? 0 };
+      })
+      .sort((a, b) => a.modified - b.modified);
+    let totalBytes = entries.reduce((total, entry) => total + entry.size, 0);
+    while (entries.length > MAX_ARTWORK_CACHE_FILES || totalBytes > MAX_ARTWORK_CACHE_BYTES) {
+      const entry = entries.shift();
+      if (!entry) break;
+      try {
+        entry.file.delete();
+        totalBytes -= entry.size;
+      } catch {
+        // A cache file can disappear while the system is reclaiming app cache.
+      }
+    }
+  } catch {
+    // Cache pruning is best effort and must never affect playback.
+  }
+}
+
 function parseEmbeddedArtwork(bytes: Uint8Array): string | null {
   if (bytes.length < 10 || readAscii(bytes, 0, 3) !== 'ID3') return null;
   const version = bytes[3];
@@ -334,9 +375,13 @@ function parseEmbeddedMetadata(bytes: Uint8Array, fallback: TrackMetadata): Trac
 async function loadEmbeddedTrackDetails(uri: string, fallback: TrackMetadata): Promise<{ artwork: string | null; metadata: TrackMetadata }> {
   try {
     const file = new File(uri);
-    const bytes = await file.bytes();
-    const sample = bytes.slice(0, 4 * 1024 * 1024);
-    return { artwork: parseEmbeddedArtwork(sample), metadata: parseEmbeddedMetadata(sample, fallback) };
+    const handle = file.open();
+    try {
+      const sample = handle.readBytes(Math.min(handle.size ?? MAX_METADATA_READ_BYTES, MAX_METADATA_READ_BYTES));
+      return { artwork: parseEmbeddedArtwork(sample), metadata: parseEmbeddedMetadata(sample, fallback) };
+    } finally {
+      handle.close();
+    }
   } catch {
     return { artwork: null, metadata: fallback };
   }
@@ -358,13 +403,13 @@ function SmallButton({ label, onPress, active = false, transport = false }: { la
   );
 }
 
-function AlbumArt({ uri, size, label, loading = false }: { uri: string | null; size: number; label: string; loading?: boolean }) {
+const AlbumArt = memo(function AlbumArt({ uri, size, label, loading = false }: { uri: string | null; size: number; label: string; loading?: boolean }) {
   return uri ? <Image accessibilityLabel={`Album artwork for ${label}`} source={{ uri }} style={{ height: size, width: size }} /> : (
     <View style={[styles.artPlaceholder, { height: size, width: size }]}>
       {loading ? <><ActivityIndicator color="#000000" /><Text style={styles.artLoadingText}>LOADING ARTWORK</Text></> : <Text style={styles.artPlaceholderText}>mp3fy</Text>}
     </View>
   );
-}
+});
 
 function MarqueeText({ text, textStyle, style, alignRight = false, fadeColor = '#FFFFFF', fadeTransparentColor = 'rgba(255,255,255,0)' }: { text: string; textStyle: object; style?: object; alignRight?: boolean; fadeColor?: string; fadeTransparentColor?: string }) {
   const translateX = useRef(new Animated.Value(0)).current;
@@ -421,11 +466,10 @@ export default function App() {
 }
 
 function Mp3fyApp() {
-  const player = useAudioPlaylist({ sources: [], updateInterval: 500, loop: 'all' });
+  const player = useAudioPlaylist({ sources: [], updateInterval: PLAYBACK_STATUS_UPDATE_INTERVAL_MS, loop: 'all' });
   const status = useAudioPlaylistStatus(player);
   const artworkCache = useRef(new Map<string, string | null>()).current;
   const metadataCache = useRef(new Map<string, TrackMetadata>()).current;
-  const artworkMediaCache = useRef(new Map<string, string | null>()).current;
   const artworkRequest = useRef(0);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -446,10 +490,16 @@ function Mp3fyApp() {
   const [scanningFolderUris, setScanningFolderUris] = useState<Set<string>>(new Set());
   const [isInitialized, setIsInitialized] = useState(false);
 
+  const trackCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    tracks.forEach((track) => counts.set(track.folderUri, (counts.get(track.folderUri) ?? 0) + 1));
+    return counts;
+  }, [tracks]);
+
   const folderCounts = useMemo(() => folders.map((folder) => ({
     folder,
-    count: tracks.filter((track) => track.folderUri === folder.uri).length,
-  })), [folders, tracks]);
+    count: trackCounts.get(folder.uri) ?? 0,
+  })), [folders, trackCounts]);
 
   const selectedFolder = useMemo(() => {
     if (screen.kind !== 'songs') return null;
@@ -458,7 +508,7 @@ function Mp3fyApp() {
 
   const selectedFolderTracks = useMemo(() => {
     if (!selectedFolder) return [];
-    return tracks.filter((track) => track.folderUri === selectedFolder.uri).sort((a, b) => a.name.localeCompare(b.name));
+    return tracks.filter((track) => track.folderUri === selectedFolder.uri);
   }, [selectedFolder, tracks]);
 
   const rescan = useCallback(async (nextFolders: Folder[]) => {
@@ -474,6 +524,7 @@ function Mp3fyApp() {
 
   useEffect(() => {
     setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
+    pruneArtworkCache();
     AsyncStorage.getItem(FOLDERS_KEY).then(async (stored) => {
       if (!stored) return;
       try {
@@ -489,11 +540,11 @@ function Mp3fyApp() {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (currentTrack && nextState !== 'unknown') {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
-        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: artworkMediaCache.get(currentTrack.uri) ?? undefined });
+        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
       }
     });
     return () => subscription.remove();
-  }, [artworkMediaCache, currentMetadata, currentTrack, player]);
+  }, [artworkCache, currentMetadata, currentTrack, player]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -518,28 +569,27 @@ function Mp3fyApp() {
   const loadArtwork = useCallback(async (track: Track) => {
     const request = ++artworkRequest.current;
     setIsArtworkLoading(true);
-    const applyArtwork = async (dataUri: string | null, metadata: TrackMetadata) => {
-      const mediaArtwork = dataUri
-        ? artworkMediaCache.get(track.uri) ?? await materializeArtwork(dataUri, track.uri)
-        : null;
-      if (mediaArtwork) artworkMediaCache.set(track.uri, mediaArtwork);
+    const applyArtwork = (mediaArtwork: string | null, metadata: TrackMetadata) => {
       if (request !== artworkRequest.current) return;
       setCurrentMetadata(metadata);
-      setCurrentArtwork(mediaArtwork ?? dataUri);
+      setCurrentArtwork(mediaArtwork);
       setIsArtworkLoading(false);
       callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
     };
 
     const cachedMetadata = metadataCache.get(track.uri);
     if (artworkCache.has(track.uri) && cachedMetadata) {
-      await applyArtwork(artworkCache.get(track.uri) ?? null, cachedMetadata);
+      rememberCacheValue(artworkCache, track.uri, artworkCache.get(track.uri) ?? null, MAX_MEMORY_ARTWORK_ENTRIES);
+      rememberCacheValue(metadataCache, track.uri, cachedMetadata, MAX_MEMORY_METADATA_ENTRIES);
+      applyArtwork(artworkCache.get(track.uri) ?? null, cachedMetadata);
       return;
     }
     const details = await loadEmbeddedTrackDetails(track.uri, fallbackMetadata(track));
-    artworkCache.set(track.uri, details.artwork);
-    metadataCache.set(track.uri, details.metadata);
-    await applyArtwork(details.artwork, details.metadata);
-  }, [artworkCache, artworkMediaCache, metadataCache, player]);
+    const mediaArtwork = details.artwork ? await materializeArtwork(details.artwork, track.uri) : null;
+    rememberCacheValue(artworkCache, track.uri, mediaArtwork, MAX_MEMORY_ARTWORK_ENTRIES);
+    rememberCacheValue(metadataCache, track.uri, details.metadata, MAX_MEMORY_METADATA_ENTRIES);
+    applyArtwork(mediaArtwork, details.metadata);
+  }, [artworkCache, metadataCache, player]);
 
   const startPlayback = useCallback((nextQueue: Track[], nextIndex: number) => {
     const nextTrack = nextQueue[nextIndex];
@@ -679,7 +729,11 @@ function Mp3fyApp() {
     }
   }, [currentTrack, folders, player, screen]);
 
-  const openFolder = (folder: Folder) => setScreen({ kind: 'songs', folderUri: folder.uri });
+  const openFolder = useCallback((folder: Folder) => setScreen({ kind: 'songs', folderUri: folder.uri }), []);
+  const togglePlayback = useCallback(() => {
+    if (status.playing) player.pause();
+    else player.play();
+  }, [player, status.playing]);
   const seek = (event: { nativeEvent: { locationX: number } }) => {
     if (!progressWidth || !status.duration) return;
     const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / progressWidth));
@@ -687,9 +741,9 @@ function Mp3fyApp() {
   };
   const progress = status.duration ? Math.min(1, status.currentTime / status.duration) : 0;
 
-  const openPlayerFromMini = () => {
+  const openPlayerFromMini = useCallback(() => {
     if (currentTrack) setScreen({ kind: 'player', returnTo: screen.kind === 'songs' ? 'songs' : 'folders' });
-  };
+  }, [currentTrack, screen.kind]);
 
   if (!isInitialized) {
     return (
@@ -717,10 +771,10 @@ function Mp3fyApp() {
           ) : screen.kind === 'songs' && selectedFolder ? (
             <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} />
           ) : currentTrack ? (
-            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
+            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
           ) : null}
 
-          {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={() => (status.playing ? player.pause() : player.play())} onNext={playNext} /> : null}
+          {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={togglePlayback} onNext={playNext} /> : null}
         </View>
       </SafeAreaView>
 
@@ -765,18 +819,18 @@ function FolderArtwork({ uri }: { uri?: string | null }) {
   return uri ? <Image source={{ uri }} style={styles.folderArtwork} /> : <View style={styles.folderArtworkPlaceholder}><Text style={styles.folderArtworkPlaceholderText}>DIR</Text></View>;
 }
 
-function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
+const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
   return (
     <View style={styles.screen}>
       <ScreenHeader subtitle="" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View>
-      {isScanning && !folders.length ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><View style={styles.folderMetaRow}><Text style={styles.folderMeta}>{item.count}</Text>{scanningFolderUris.has(item.folder.uri) ? <ActivityIndicator color="#000000" size="small" /> : null}</View></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>1.4.18</Text></View>
+      {isScanning && !folders.length ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><View style={styles.folderMetaRow}><Text style={styles.folderMeta}>{item.count}</Text>{scanningFolderUris.has(item.folder.uri) ? <ActivityIndicator color="#000000" size="small" /> : null}</View></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} initialNumToRender={8} maxToRenderPerBatch={8} removeClippedSubviews windowSize={5} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
+      <View style={styles.footer}><Text style={styles.footerText}>1.4.19</Text></View>
     </View>
   );
-}
+});
 
-function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; isScanning: boolean; onPlayTrack: (track: Track) => void }) {
+const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; isScanning: boolean; onPlayTrack: (track: Track) => void }) {
   const [search, setSearch] = useState('');
   const visibleTracks = useMemo(() => tracks.filter((track) => track.name.toLowerCase().includes(search.trim().toLowerCase())), [search, tracks]);
   return (
@@ -784,17 +838,17 @@ function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: 
       <ScreenHeader subtitle="" right={<Text style={styles.count}>{tracks.length} TRACKS</Text>} />
       <View style={styles.pageHeading}><Text numberOfLines={2} style={styles.screenTitle}>{folder.name}</Text></View>
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
-      {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} renderItem={({ item }) => {
+      {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} initialNumToRender={16} maxToRenderPerBatch={12} removeClippedSubviews windowSize={7} renderItem={({ item }) => {
         const isPlaying = currentTrack?.uri === item.uri;
         return <Pressable onPress={() => onPlayTrack(item)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}>{isPlaying ? <MarqueeText style={styles.trackNameViewport} text={item.name} textStyle={styles.trackName} fadeColor="#F2F2F2" fadeTransparentColor="rgba(242,242,242,0)" /> : <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackName}>{item.name}</Text>}</View></Pressable>;
       }} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No MP3 files</Text><Text style={styles.description}>This folder does not currently contain any MP3 files.</Text></View>}
     </View>
   );
-}
+});
 
-function MiniPlayer({ track, metadata, artwork, artworkLoading, playing, onOpen, onTogglePlay, onNext }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; playing: boolean; onOpen: () => void; onTogglePlay: () => void; onNext: () => void }) {
+const MiniPlayer = memo(function MiniPlayer({ track, metadata, artwork, artworkLoading, playing, onOpen, onTogglePlay, onNext }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; playing: boolean; onOpen: () => void; onTogglePlay: () => void; onNext: () => void }) {
   return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={metadata.title} size={52} uri={artwork} loading={artworkLoading} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><MarqueeText style={styles.miniTitleViewport} text={metadata.title} textStyle={styles.miniTitle} /><MarqueeText style={styles.miniArtistViewport} text={metadata.artist || track.folderName} textStyle={styles.miniFolder} /></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
-}
+});
 
 type TransportIconKind = 'shuffle' | 'order' | 'repeatAll' | 'repeatOne';
 
