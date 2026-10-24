@@ -21,6 +21,8 @@ import {
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
+import { initializeWrappedStore, recordListening, updateTrackDetails } from './wrappedStore';
+import { ListeningTracker } from './wrappedTracker';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const PLAYBACK_KEY = 'mp3fy.playback.v1';
@@ -511,11 +513,20 @@ function Mp3fyApp() {
   const [folderToConfirm, setFolderToConfirm] = useState<Folder | null>(null);
   const [scanningFolderUris, setScanningFolderUris] = useState<Set<string>>(new Set());
   const [isInitialized, setIsInitialized] = useState(false);
+  const [wrappedRevision, setWrappedRevision] = useState(0);
   const pendingRestorePosition = useRef<number | null>(null);
   const latestPlayback = useRef<SavedPlayback | null>(null);
   const lastSavedPlayback = useRef<string | null>(null);
   const storageWrite = useRef<Promise<void>>(Promise.resolve());
   const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listeningTracker = useRef<ListeningTracker | null>(null);
+  if (!listeningTracker.current) {
+    listeningTracker.current = new ListeningTracker(async (entries) => {
+      await recordListening(entries);
+      setWrappedRevision((revision) => revision + 1);
+    });
+  }
+  const tracker = listeningTracker.current;
 
   const savePlayback = useCallback((playback: SavedPlayback | null) => {
     const serialized = playback ? JSON.stringify(playback) : null;
@@ -558,11 +569,42 @@ function Mp3fyApp() {
     return scanResult.tracks;
   }, []);
 
+  const observePlayback = useCallback((currentTime = player.currentTime, playing = player.playing, buffering = player.isBuffering, duration = player.duration, index = player.currentIndex) => {
+    const track = queue[index] ?? currentTrack;
+    const metadata = track?.uri === currentTrack?.uri ? currentMetadata : track ? metadataCache.get(track.uri) : null;
+    tracker.observe({
+      track: track ? { uri: track.uri, title: metadata?.title || fallbackMetadata(track).title, artist: metadata?.artist || fallbackMetadata(track).artist } : null,
+      positionSeconds: currentTime,
+      durationSeconds: duration,
+      playing,
+      buffering,
+      atMs: Date.now(),
+    });
+  }, [currentMetadata, currentTrack, metadataCache, player, queue, tracker]);
+
+  useEffect(() => {
+    void initializeWrappedStore().catch(() => undefined);
+    const timer = setInterval(() => { void tracker.flush().catch(() => undefined); }, 5000);
+    return () => {
+      clearInterval(timer);
+      void tracker.flush().catch(() => undefined);
+    };
+  }, [tracker]);
+
+  useEffect(() => {
+    if (player.currentIndex !== status.currentIndex) return;
+    observePlayback(status.currentTime, status.playing, status.isBuffering, status.duration, status.currentIndex);
+  }, [observePlayback, player, status.currentIndex, status.currentTime, status.duration, status.isBuffering, status.playing]);
+
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'background' || nextState === 'inactive') {
+        observePlayback();
+        void tracker.flush().catch(() => undefined);
         const playback = latestPlayback.current;
         if (playback) savePlayback({ ...playback, currentTime: pendingRestorePosition.current ?? Math.max(0, Math.floor(player.currentTime)) });
+      } else if (nextState === 'active') {
+        void initializeWrappedStore().catch(() => undefined);
       }
       if (currentTrack && nextState !== 'unknown') {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
@@ -570,7 +612,7 @@ function Mp3fyApp() {
       }
     });
     return () => subscription.remove();
-  }, [artworkCache, currentMetadata, currentTrack, player, savePlayback]);
+  }, [artworkCache, currentMetadata, currentTrack, observePlayback, player, savePlayback, tracker]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -598,6 +640,7 @@ function Mp3fyApp() {
     const applyArtwork = (mediaArtwork: string | null, metadata: TrackMetadata) => {
       if (request !== artworkRequest.current) return;
       setCurrentMetadata(metadata);
+      void updateTrackDetails(track.uri, metadata.title, metadata.artist).catch(() => undefined);
       setCurrentArtwork(mediaArtwork);
       setIsArtworkLoading(false);
       callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
@@ -738,6 +781,9 @@ function Mp3fyApp() {
   const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, nextRepeatMode: RepeatMode = repeatMode) => {
     const nextTrack = nextQueue[nextIndex];
     if (!nextTrack) return;
+    observePlayback();
+    tracker.restart();
+    void tracker.flush().catch(() => undefined);
     pendingRestorePosition.current = 0;
     if (restoreTimer.current) clearTimeout(restoreTimer.current);
     player.clear();
@@ -770,7 +816,7 @@ function Mp3fyApp() {
       if (current) savePlayback({ ...current, currentTime: Math.max(0, Math.floor(player.currentTime)) });
     }, 5000);
     void loadArtwork(nextTrack);
-  }, [folders, loadArtwork, mode, player, repeatMode, savePlayback]);
+  }, [folders, loadArtwork, mode, observePlayback, player, repeatMode, savePlayback, tracker]);
 
   const replaceQueueWithoutInterrupt = useCallback((nextQueue: Track[], nextIndex: number) => {
     const activeNativeIndex = player.currentIndex;
@@ -848,14 +894,20 @@ function Mp3fyApp() {
 
   const playNext = useCallback(() => {
     if (queue.length) {
+      observePlayback();
+      tracker.restart();
+      void tracker.flush().catch(() => undefined);
       pendingRestorePosition.current = null;
       if (restoreTimer.current) clearTimeout(restoreTimer.current);
       player.next();
     }
-  }, [player, queue.length]);
+  }, [observePlayback, player, queue.length, tracker]);
 
   const playPrevious = useCallback(() => {
     if (!queue.length) return;
+    observePlayback();
+    tracker.restart();
+    void tracker.flush().catch(() => undefined);
     pendingRestorePosition.current = null;
     if (restoreTimer.current) clearTimeout(restoreTimer.current);
     if (status.currentTime > 3) {
@@ -863,7 +915,7 @@ function Mp3fyApp() {
       return;
     }
     player.previous();
-  }, [player, queue, queueIndex, status.currentTime]);
+  }, [observePlayback, player, queue, queueIndex, status.currentTime, tracker]);
 
   const updateQueuePreference = useCallback((nextMode: PlaybackMode) => {
     setMode(nextMode);
@@ -913,6 +965,9 @@ function Mp3fyApp() {
       setTracks((existing) => existing.filter((track) => track.folderUri !== folder.uri));
       if (screen.kind === 'songs' && screen.folderUri === folder.uri) setScreen({ kind: 'folders' });
       if (currentTrack?.folderUri === folder.uri) {
+        observePlayback();
+        tracker.restart();
+        void tracker.flush().catch(() => undefined);
         pendingRestorePosition.current = null;
         if (restoreTimer.current) clearTimeout(restoreTimer.current);
         latestPlayback.current = null;
@@ -930,28 +985,33 @@ function Mp3fyApp() {
     } catch {
       setNotice('The folder could not be removed.');
     }
-  }, [currentTrack, folders, player, savePlayback, screen]);
+  }, [currentTrack, folders, observePlayback, player, savePlayback, screen, tracker]);
 
   const openFolder = useCallback((folder: Folder) => setScreen({ kind: 'songs', folderUri: folder.uri }), []);
   const togglePlayback = useCallback(() => {
+    observePlayback();
     pendingRestorePosition.current = null;
     if (restoreTimer.current) clearTimeout(restoreTimer.current);
     if (status.playing) {
       player.pause();
+      void tracker.flush().catch(() => undefined);
       const playback = latestPlayback.current;
       if (playback) savePlayback({ ...playback, currentTime: Math.max(0, Math.floor(player.currentTime)) });
     } else player.play();
-  }, [player, savePlayback, status.playing]);
+  }, [observePlayback, player, savePlayback, status.playing, tracker]);
   const seek = (event: { nativeEvent: { locationX: number } }) => {
     if (!progressWidth || !status.duration) return;
+    observePlayback();
     pendingRestorePosition.current = null;
     if (restoreTimer.current) clearTimeout(restoreTimer.current);
     const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / progressWidth));
     const nextTime = ratio * status.duration;
+    tracker.markSeek(nextTime);
+    void tracker.flush().catch(() => undefined);
     player.seekTo(nextTime).then(() => {
       const playback = latestPlayback.current;
       if (playback) savePlayback({ ...playback, currentTime: Math.floor(nextTime) });
-    }).catch(() => undefined);
+    }).catch(() => tracker.cancelSeek());
   };
   const displayedStatus = pendingRestorePosition.current === null
     ? status

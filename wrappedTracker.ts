@@ -16,7 +16,7 @@ export class ListeningTracker {
   private previous: PlaybackSample | null = null;
   private heardInSessionMs = 0;
   private countedSession = false;
-  private ignoreNextPositionJump = false;
+  private seekTarget: { seconds: number; atMs: number } | null = null;
   private pending = new Map<string, ListeningEntry>();
   private flushing = Promise.resolve();
 
@@ -37,6 +37,10 @@ export class ListeningTracker {
   }
 
   private addListening(track: ListeningTrack, fromMs: number, toMs: number, listenedMs: number) {
+    if (toMs <= fromMs) {
+      this.add(track, localDay(new Date(toMs)), listenedMs, 0);
+      return;
+    }
     const wallMs = Math.max(1, toMs - fromMs);
     let cursor = fromMs;
     let remaining = listenedMs;
@@ -67,18 +71,21 @@ export class ListeningTracker {
       this.previous = sample;
       this.heardInSessionMs = 0;
       this.countedSession = false;
+      this.seekTarget = null;
       return;
     }
     if (!previous || previous.track?.uri !== sample.track.uri) {
       this.previous = sample;
       this.heardInSessionMs = 0;
       this.countedSession = false;
-      this.ignoreNextPositionJump = false;
+      this.seekTarget = null;
       return;
     }
 
-    if (this.ignoreNextPositionJump) {
-      this.ignoreNextPositionJump = false;
+    if (this.seekTarget) {
+      if (Math.abs(sample.positionSeconds - this.seekTarget.seconds) <= 2 || sample.atMs - this.seekTarget.atMs > 5000) {
+        this.seekTarget = null;
+      }
       this.previous = sample;
       return;
     }
@@ -111,15 +118,19 @@ export class ListeningTracker {
     this.previous = sample;
   }
 
-  markSeek() {
-    this.ignoreNextPositionJump = true;
+  markSeek(seconds: number) {
+    this.seekTarget = { seconds, atMs: Date.now() };
+  }
+
+  cancelSeek() {
+    this.seekTarget = null;
   }
 
   restart() {
     this.previous = null;
     this.heardInSessionMs = 0;
     this.countedSession = false;
-    this.ignoreNextPositionJump = false;
+    this.seekTarget = null;
   }
 
   flush(): Promise<void> {
