@@ -13,17 +13,14 @@ export type WrappedPeriod = 'day' | 'week' | 'month' | 'year' | 'all';
 export type WrappedRank = { name: string; artist: string; listenedMs: number; plays: number };
 export type WrappedSummary = {
   listenedMs: number;
-  allTimeMs: number;
   artists: WrappedRank[];
   songs: WrappedRank[];
   longestDay: { period: string; listenedMs: number } | null;
   longestMonth: { period: string; listenedMs: number } | null;
 };
-export type AvailablePeriods = Record<Exclude<WrappedPeriod, 'all'>, string[]>;
-
-const DAY_HISTORY_DAYS = 70;
 let databasePromise: Promise<SQLiteDatabase> | null = null;
 let writeQueue = Promise.resolve();
+let prunedForDay: string | null = null;
 
 export function localDay(date: Date): string {
   const year = date.getFullYear();
@@ -78,6 +75,10 @@ async function openStore(): Promise<SQLiteDatabase> {
           day TEXT PRIMARY KEY,
           listened_ms INTEGER NOT NULL DEFAULT 0
         ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS month_totals (
+          month TEXT PRIMARY KEY,
+          listened_ms INTEGER NOT NULL DEFAULT 0
+        ) WITHOUT ROWID;
       `);
       return db;
     })().catch((error) => {
@@ -88,14 +89,32 @@ async function openStore(): Promise<SQLiteDatabase> {
   return databasePromise;
 }
 
-export async function initializeWrappedStore(): Promise<void> {
-  await enqueueWrite(async () => {
-    const db = await openStore();
-    const cutoff = new Date();
-    cutoff.setHours(0, 0, 0, 0);
-    cutoff.setDate(cutoff.getDate() - DAY_HISTORY_DAYS);
-    await db.runAsync("DELETE FROM period_stats WHERE grain = 'day' AND period < ?", weekStart(localDay(cutoff)));
+async function pruneExpiredRankings(db: SQLiteDatabase): Promise<void> {
+  const today = localDay(new Date());
+  if (prunedForDay === today) return;
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    // Existing installations may have older monthly rankings. Preserve their
+    // duration totals before removing the per-track rows.
+    await txn.runAsync(`
+      INSERT OR IGNORE INTO month_totals (month, listened_ms)
+      SELECT period, SUM(listened_ms) FROM period_stats WHERE grain = 'month' GROUP BY period
+    `);
+    // The previous release calculated weeks from daily rows. Carry the
+    // current week into its own aggregate before expiring older days.
+    await txn.runAsync(`
+      INSERT OR IGNORE INTO period_stats (grain, period, track_id, listened_ms, plays)
+      SELECT 'week', ?, track_id, SUM(listened_ms), SUM(plays)
+      FROM period_stats WHERE grain = 'day' AND period BETWEEN ? AND ? GROUP BY track_id
+    `, weekStart(today), weekStart(today), today);
+    await txn.runAsync("DELETE FROM period_stats WHERE grain = 'day' AND period < ?", today);
+    await txn.runAsync("DELETE FROM period_stats WHERE grain = 'week' AND period < ?", weekStart(today));
+    await txn.runAsync("DELETE FROM period_stats WHERE grain = 'month' AND period < ?", monthlyKey(today));
   });
+  prunedForDay = today;
+}
+
+export async function initializeWrappedStore(): Promise<void> {
+  await enqueueWrite(async () => pruneExpiredRankings(await openStore()));
 }
 
 export async function updateTrackDetails(uri: string, title: string, artist: string): Promise<void> {
@@ -117,7 +136,11 @@ export async function recordListening(entries: ListeningEntry[]): Promise<void> 
   if (!valid.length) return;
   await enqueueWrite(async () => {
     const db = await openStore();
+    await pruneExpiredRankings(db);
     await db.withExclusiveTransactionAsync(async (txn) => {
+      const today = localDay(new Date());
+      const currentWeek = weekStart(today);
+      const currentMonth = monthlyKey(today);
       for (const entry of valid) {
         const displayArtist = normalizeArtist(entry.artist);
         await txn.runAsync(`
@@ -126,12 +149,10 @@ export async function recordListening(entries: ListeningEntry[]): Promise<void> 
         `, entry.uri, entry.title.trim() || entry.uri, displayArtist, displayArtist.toLocaleLowerCase());
         const track = await txn.getFirstAsync<{ id: number }>('SELECT id FROM tracks WHERE uri = ?', entry.uri);
         if (!track) throw new Error('Track was not stored');
-        const periods: [string, string][] = [
-          ['day', entry.day],
-          ['month', monthlyKey(entry.day)],
-          ['year', yearlyKey(entry.day)],
-          ['all', '*'],
-        ];
+        const periods: [string, string][] = [['year', yearlyKey(entry.day)], ['all', '*']];
+        if (entry.day === today) periods.push(['day', today]);
+        if (weekStart(entry.day) === currentWeek) periods.push(['week', currentWeek]);
+        if (monthlyKey(entry.day) === currentMonth) periods.push(['month', currentMonth]);
         for (const [grain, period] of periods) {
           await txn.runAsync(`
             INSERT INTO period_stats (grain, period, track_id, listened_ms, plays) VALUES (?, ?, ?, ?, ?)
@@ -145,6 +166,10 @@ export async function recordListening(entries: ListeningEntry[]): Promise<void> 
             INSERT INTO day_totals (day, listened_ms) VALUES (?, ?)
             ON CONFLICT(day) DO UPDATE SET listened_ms = listened_ms + excluded.listened_ms
           `, entry.day, Math.round(entry.listenedMs));
+          await txn.runAsync(`
+            INSERT INTO month_totals (month, listened_ms) VALUES (?, ?)
+            ON CONFLICT(month) DO UPDATE SET listened_ms = listened_ms + excluded.listened_ms
+          `, monthlyKey(entry.day), Math.round(entry.listenedMs));
         }
       }
     });
@@ -152,24 +177,18 @@ export async function recordListening(entries: ListeningEntry[]): Promise<void> 
 }
 
 function periodFilter(period: WrappedPeriod, key: string): { grain: string; start: string; end: string } {
-  if (period === 'week') {
-    const [year, month, date] = key.split('-').map(Number);
-    const end = new Date(year, month - 1, date);
-    end.setDate(end.getDate() + 6);
-    return { grain: 'day', start: key, end: localDay(end) };
-  }
   if (period === 'all') return { grain: 'all', start: '*', end: '*' };
   return { grain: period, start: key, end: key };
 }
 
 export async function getWrappedSummary(period: WrappedPeriod, key: string): Promise<WrappedSummary> {
+  if (prunedForDay !== localDay(new Date())) await initializeWrappedStore();
   await writeQueue;
   const db = await openStore();
   const filter = periodFilter(period, key);
   const params: [string, string, string] = [filter.grain, filter.start, filter.end];
-  const [total, allTime, artists, songs, longestDay, longestMonth] = await Promise.all([
+  const [total, artists, songs, longestDay, longestMonth] = await Promise.all([
     db.getFirstAsync<{ listenedMs: number }>(`SELECT COALESCE(SUM(listened_ms), 0) AS listenedMs FROM period_stats WHERE grain = ? AND period BETWEEN ? AND ?`, params),
-    db.getFirstAsync<{ listenedMs: number }>("SELECT COALESCE(SUM(listened_ms), 0) AS listenedMs FROM period_stats WHERE grain = 'all'"),
     db.getAllAsync<WrappedRank>(`
       SELECT MIN(t.artist) AS name, '' AS artist, SUM(p.listened_ms) AS listenedMs, SUM(p.plays) AS plays
       FROM period_stats p JOIN tracks t ON t.id = p.track_id
@@ -184,15 +203,17 @@ export async function getWrappedSummary(period: WrappedPeriod, key: string): Pro
       GROUP BY t.id HAVING SUM(p.plays) > 0
       ORDER BY plays DESC, listenedMs DESC, name COLLATE NOCASE LIMIT 5
     `, params),
-    db.getFirstAsync<{ period: string; listenedMs: number }>('SELECT day AS period, listened_ms AS listenedMs FROM day_totals ORDER BY listened_ms DESC, day ASC LIMIT 1'),
-    db.getFirstAsync<{ period: string; listenedMs: number }>(`
-      SELECT period, SUM(listened_ms) AS listenedMs FROM period_stats WHERE grain = 'month'
-      GROUP BY period ORDER BY listenedMs DESC, period ASC LIMIT 1
-    `),
+    period === 'year' ? db.getFirstAsync<{ period: string; listenedMs: number }>(`
+      SELECT day AS period, listened_ms AS listenedMs FROM day_totals
+      WHERE day BETWEEN ? AND ? ORDER BY listened_ms DESC, day ASC LIMIT 1
+    `, `${key}-01-01`, `${key}-12-31`) : Promise.resolve(null),
+    period === 'year' ? db.getFirstAsync<{ period: string; listenedMs: number }>(`
+      SELECT month AS period, listened_ms AS listenedMs FROM month_totals
+      WHERE month BETWEEN ? AND ? ORDER BY listened_ms DESC, month ASC LIMIT 1
+    `, `${key}-01`, `${key}-12`) : Promise.resolve(null),
   ]);
   return {
     listenedMs: total?.listenedMs ?? 0,
-    allTimeMs: allTime?.listenedMs ?? 0,
     artists,
     songs,
     longestDay: longestDay ?? null,
@@ -200,29 +221,9 @@ export async function getWrappedSummary(period: WrappedPeriod, key: string): Pro
   };
 }
 
-export async function getAvailablePeriods(now = new Date()): Promise<AvailablePeriods> {
+export async function getAvailableYears(now = new Date()): Promise<string[]> {
   await writeQueue;
   const db = await openStore();
-  const rows = await db.getAllAsync<{ grain: string; period: string }>(`
-    SELECT DISTINCT grain, period FROM period_stats WHERE grain IN ('day', 'month', 'year')
-    ORDER BY period DESC
-  `);
-  const today = localDay(now);
-  const available: AvailablePeriods = {
-    day: [today],
-    week: [weekStart(today)],
-    month: [monthlyKey(today)],
-    year: [yearlyKey(today)],
-  };
-  for (const row of rows) {
-    if (row.grain === 'day') {
-      if (!available.day.includes(row.period)) available.day.push(row.period);
-      const week = weekStart(row.period);
-      if (!available.week.includes(week)) available.week.push(week);
-    } else if (row.grain === 'month' || row.grain === 'year') {
-      if (!available[row.grain].includes(row.period)) available[row.grain].push(row.period);
-    }
-  }
-  for (const periods of Object.values(available)) periods.sort().reverse();
-  return available;
+  const rows = await db.getAllAsync<{ period: string }>("SELECT DISTINCT period FROM period_stats WHERE grain = 'year' ORDER BY period DESC");
+  return Array.from(new Set([String(now.getFullYear()), ...rows.map((row) => row.period)])).sort().reverse();
 }

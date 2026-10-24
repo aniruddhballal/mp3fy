@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { getAvailablePeriods, getWrappedSummary, localDay, weekStart, type AvailablePeriods, type WrappedPeriod, type WrappedRank, type WrappedSummary } from './wrappedStore';
+import { getAvailableYears, getWrappedSummary, localDay, weekStart, type WrappedPeriod, type WrappedRank, type WrappedSummary } from './wrappedStore';
 
 const TABS: { key: WrappedPeriod; label: string }[] = [
   { key: 'day', label: 'DAY' },
@@ -9,11 +9,6 @@ const TABS: { key: WrappedPeriod; label: string }[] = [
   { key: 'year', label: 'YEAR' },
   { key: 'all', label: 'ALL TIME' },
 ];
-
-function initialPeriods(): AvailablePeriods {
-  const today = localDay(new Date());
-  return { day: [today], week: [weekStart(today)], month: [today.slice(0, 7)], year: [today.slice(0, 4)] };
-}
 
 function durationLabel(milliseconds: number): string {
   const seconds = Math.floor(milliseconds / 1000);
@@ -60,23 +55,31 @@ function RankedList({ title, entries, metric }: { title: string; entries: Wrappe
 
 export function WrappedScreen({ revision, onBack }: { revision: number; onBack: () => void }) {
   const [period, setPeriod] = useState<WrappedPeriod>('year');
-  const [available, setAvailable] = useState<AvailablePeriods>(initialPeriods);
-  const [selectedKeys, setSelectedKeys] = useState<Partial<Record<WrappedPeriod, string>>>({});
+  const [today, setToday] = useState(() => localDay(new Date()));
+  const [years, setYears] = useState<string[]>([String(new Date().getFullYear())]);
+  const [selectedYear, setSelectedYear] = useState<string | null>(null);
   const [summary, setSummary] = useState<WrappedSummary | null>(null);
   const [loadedKey, setLoadedKey] = useState('');
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const choices = period === 'all' ? [] : available[period];
-  const key = period === 'all' ? '*' : selectedKeys[period] ?? choices[0];
-  const selectedIndex = choices.indexOf(key);
+  const key = period === 'day' ? today
+    : period === 'week' ? weekStart(today)
+      : period === 'month' ? today.slice(0, 7)
+        : period === 'year' ? selectedYear ?? today.slice(0, 4) : '*';
+  const selectedIndex = years.indexOf(key);
+
+  useEffect(() => {
+    const timer = setInterval(() => setToday(localDay(new Date())), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let live = true;
-    getAvailablePeriods().then((periods) => {
-      if (live) setAvailable(periods);
+    getAvailableYears().then((availableYears) => {
+      if (live) setYears(availableYears);
     }).catch(() => undefined);
     return () => { live = false; };
-  }, [revision, retry]);
+  }, [revision, retry, today]);
 
   useEffect(() => {
     let live = true;
@@ -110,10 +113,10 @@ export function WrappedScreen({ revision, onBack }: { revision: number; onBack: 
         {TABS.map((tab) => <Pressable key={tab.key} accessibilityRole="tab" accessibilityState={{ selected: period === tab.key }} onPress={() => setPeriod(tab.key)} style={[styles.tab, period === tab.key && styles.activeTab]}><Text style={[styles.tabText, period === tab.key && styles.activeTabText]}>{tab.label}</Text></Pressable>)}
       </ScrollView>
 
-      {period !== 'all' ? <View style={styles.periodNavigation}>
-        <Pressable accessibilityRole="button" disabled={selectedIndex >= choices.length - 1} onPress={() => setSelectedKeys((keys) => ({ ...keys, [period]: choices[selectedIndex + 1] }))} style={[styles.navButton, selectedIndex >= choices.length - 1 && styles.disabled]}><Text style={styles.navText}>‹ PREV</Text></Pressable>
+      {period === 'year' ? <View style={styles.periodNavigation}>
+        <Pressable accessibilityRole="button" disabled={selectedIndex >= years.length - 1} onPress={() => setSelectedYear(years[selectedIndex + 1])} style={[styles.navButton, selectedIndex >= years.length - 1 && styles.disabled]}><Text style={styles.navText}>‹ PREV</Text></Pressable>
         <Text style={styles.periodText} numberOfLines={1}>{periodLabel(period, key)}</Text>
-        <Pressable accessibilityRole="button" disabled={selectedIndex <= 0} onPress={() => setSelectedKeys((keys) => ({ ...keys, [period]: choices[selectedIndex - 1] }))} style={[styles.navButton, selectedIndex <= 0 && styles.disabled]}><Text style={styles.navText}>NEXT ›</Text></Pressable>
+        <Pressable accessibilityRole="button" disabled={selectedIndex <= 0} onPress={() => setSelectedYear(years[selectedIndex - 1])} style={[styles.navButton, selectedIndex <= 0 && styles.disabled]}><Text style={styles.navText}>NEXT ›</Text></Pressable>
       </View> : <Text style={styles.allTimeLabel}>{periodLabel(period, key)}</Text>}
 
       {error ? <View style={styles.messageCard}><Text style={styles.messageTitle}>Could not load your listening history.</Text><Pressable accessibilityRole="button" onPress={() => setRetry((value) => value + 1)}><Text style={styles.retryText}>TRY AGAIN</Text></Pressable></View> : !summary || loadedKey !== `${period}:${key}` ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.loadingText}>Loading your Wrapped...</Text></View> : <>
@@ -121,7 +124,7 @@ export function WrappedScreen({ revision, onBack }: { revision: number; onBack: 
           <Text style={styles.heroEyebrow}>{heroLabel}</Text>
           <Text style={styles.heroDuration}>{durationLabel(summary.listenedMs)}</Text>
           <Text style={styles.heroCaption}>OF MUSIC LISTENED</Text>
-          {period === 'year' ? <Text style={styles.heroNote}>A living recap of {key}. It updates as you listen.</Text> : null}
+          {period === 'year' ? <Text style={styles.heroNote}>{key === today.slice(0, 4) ? `A living recap of ${key}. It updates as you listen.` : `Your recap of ${key}.`}</Text> : null}
         </View>
 
         <View style={styles.winners}>
@@ -132,14 +135,13 @@ export function WrappedScreen({ revision, onBack }: { revision: number; onBack: 
         <RankedList title="Artists" entries={summary.artists} metric="time" />
         <RankedList title="Songs" entries={summary.songs} metric="plays" />
 
-        <View style={styles.milestones}>
+        {period === 'year' ? <View style={styles.milestones}>
           <Text style={styles.sectionEyebrow}>THE BIG PICTURE</Text>
-          <Text style={styles.sectionTitle}>Your milestones</Text>
-          <View style={styles.milestoneRow}><Text style={styles.milestoneLabel}>ALL-TIME LISTENING</Text><Text style={styles.milestoneValue}>{durationLabel(summary.allTimeMs)}</Text></View>
+          <Text style={styles.sectionTitle}>{key} milestones</Text>
           <View style={styles.milestoneRow}><View><Text style={styles.milestoneLabel}>LONGEST DAY</Text><Text style={styles.milestoneDetail}>{summary.longestDay ? periodLabel('day', summary.longestDay.period) : 'No listening yet'}</Text></View><Text style={styles.milestoneValue}>{summary.longestDay ? durationLabel(summary.longestDay.listenedMs) : '—'}</Text></View>
           <View style={styles.milestoneRow}><View><Text style={styles.milestoneLabel}>BIGGEST MONTH</Text><Text style={styles.milestoneDetail}>{summary.longestMonth ? periodLabel('month', summary.longestMonth.period) : 'No listening yet'}</Text></View><Text style={styles.milestoneValue}>{summary.longestMonth ? durationLabel(summary.longestMonth.listenedMs) : '—'}</Text></View>
-        </View>
-        <Text style={styles.footnote}>A play is counted after 30 seconds of listening. Time reflects actual playback, including listens shorter than 30 seconds. Daily and weekly song rankings cover recent listening; monthly, yearly and all-time rankings remain available.</Text>
+        </View> : null}
+        <Text style={styles.footnote}>A play is counted after 30 seconds of listening. Time reflects actual playback, including shorter listens. Day, week and month rankings show the current period. You can revisit past years; All Time keeps accumulating.</Text>
       </>}
     </ScrollView>
   );
