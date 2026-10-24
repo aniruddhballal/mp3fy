@@ -18,6 +18,8 @@ Each song is identified by a SHA-256 hash of its normalized MP3 filename, so cop
 
 Stats are stored locally in SQLite as per-track totals rather than a growing log of every playback event. Per-track day, week, and month rankings are kept only for their current periods. Per-track yearly and all-time totals remain available. One small total per day and month is retained for annual milestones. This keeps storage growth linear with distinct tracks and years, and does not modify MP3 files.
 
+Wrapped can also keep two backup files in a shared folder chosen from the Wrapped screen. These files survive uninstalling the app. Backups update within about a minute of new listening and when the app goes to the background; **Save Backup Now** writes immediately. After reinstalling, open Wrapped, use **Restore Backup** to select `mp3fy-wrapped.json` (or `mp3fy-wrapped-previous.json` if needed), then select music folders again and choose a backup folder to resume automatic backups. Restoring replaces current Wrapped history after confirmation. The two backup files are overwritten in place, so their count does not grow with playback.
+
 ## Planned workflow
 
 1. The user taps **Add folder**.

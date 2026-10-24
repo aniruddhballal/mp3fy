@@ -21,7 +21,8 @@ import {
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
-import { initializeWrappedStore, recordListening, updateTrackDetails } from './wrappedStore';
+import { initializeWrappedStore, recordListening, restoreWrappedBackup, updateTrackDetails } from './wrappedStore';
+import { initializeWrappedBackup, noteWrappedHistoryChanged, saveWrappedBackupNow } from './wrappedBackup';
 import { ListeningTracker } from './wrappedTracker';
 import { WrappedScreen } from './WrappedScreen';
 
@@ -525,6 +526,7 @@ function Mp3fyApp() {
   if (!listeningTracker.current) {
     listeningTracker.current = new ListeningTracker(async (entries) => {
       await recordListening(entries);
+      noteWrappedHistoryChanged();
       setWrappedRevision((revision) => revision + 1);
     });
   }
@@ -586,6 +588,7 @@ function Mp3fyApp() {
 
   useEffect(() => {
     void initializeWrappedStore().catch(() => undefined);
+    void initializeWrappedBackup().catch(() => undefined);
     const timer = setInterval(() => { void tracker.flush().catch(() => undefined); }, 5000);
     return () => {
       clearInterval(timer);
@@ -602,7 +605,7 @@ function Mp3fyApp() {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'background' || nextState === 'inactive') {
         observePlayback();
-        void tracker.flush().catch(() => undefined);
+        void tracker.flush().then(() => saveWrappedBackupNow()).catch(() => undefined);
         const playback = latestPlayback.current;
         if (playback) savePlayback({ ...playback, currentTime: pendingRestorePosition.current ?? Math.max(0, Math.floor(player.currentTime)) });
       } else if (nextState === 'active') {
@@ -1039,6 +1042,22 @@ function Mp3fyApp() {
     setScreen({ kind: 'wrapped', returnTo: screen.kind === 'wrapped' ? 'folders' : screen.kind, folderUri: screen.kind === 'songs' ? screen.folderUri : undefined, playerReturnTo: screen.kind === 'player' ? screen.returnTo : undefined });
   }, [observePlayback, screen, tracker]);
 
+  const prepareWrappedBackup = useCallback(async () => {
+    observePlayback();
+    await tracker.flush();
+  }, [observePlayback, tracker]);
+
+  const restoreWrappedHistory = useCallback(async (contents: string) => {
+    observePlayback();
+    player.pause();
+    await tracker.flush();
+    await restoreWrappedBackup(contents);
+    tracker.restart();
+    setWrappedRevision((revision) => revision + 1);
+    noteWrappedHistoryChanged();
+    void saveWrappedBackupNow().catch(() => undefined);
+  }, [observePlayback, player, tracker]);
+
   const closeWrapped = useCallback(() => {
     if (screen.kind !== 'wrapped') return;
     if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
@@ -1072,7 +1091,7 @@ function Mp3fyApp() {
           ) : screen.kind === 'songs' && selectedFolder ? (
             <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} onOpenWrapped={openWrapped} />
           ) : screen.kind === 'wrapped' ? (
-            <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} />
+            <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} onPrepareBackup={prepareWrappedBackup} onRestoreBackup={restoreWrappedHistory} />
           ) : currentTrack ? (
             <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} onOpenWrapped={openWrapped} />
           ) : null}

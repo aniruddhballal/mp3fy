@@ -157,7 +157,11 @@ async function parseWrappedBackup(contents: string): Promise<WrappedBackup> {
   for (const row of data.periods) {
     if (!row || !['day', 'week', 'month', 'year', 'all'].includes(row.grain)
       || typeof row.period !== 'string' || typeof row.songKey !== 'string' || !keys.has(row.songKey)
-      || !nonnegativeInteger(row.listenedMs) || !nonnegativeInteger(row.plays)) throw new Error('Invalid Wrapped ranking');
+      || !nonnegativeInteger(row.listenedMs) || !nonnegativeInteger(row.plays)
+      || (row.grain === 'all' && row.period !== '*')
+      || (row.grain === 'year' && !/^\d{4}$/.test(row.period))
+      || (row.grain === 'month' && !/^\d{4}-\d{2}$/.test(row.period))
+      || ((row.grain === 'day' || row.grain === 'week') && !/^\d{4}-\d{2}-\d{2}$/.test(row.period))) throw new Error('Invalid Wrapped ranking');
     const compound = `${row.grain}\0${row.period}\0${row.songKey}`;
     if (periodKeys.has(compound)) throw new Error('Duplicate Wrapped ranking');
     periodKeys.add(compound);
@@ -171,6 +175,11 @@ async function parseWrappedBackup(contents: string): Promise<WrappedBackup> {
     }
   }
   return data as WrappedBackup;
+}
+
+export async function inspectWrappedBackup(contents: string): Promise<{ createdAt: string; songCount: number }> {
+  const backup = await parseWrappedBackup(contents);
+  return { createdAt: backup.createdAt, songCount: backup.tracks.length };
 }
 
 async function openStore(): Promise<SQLiteDatabase> {
