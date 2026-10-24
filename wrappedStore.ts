@@ -45,6 +45,16 @@ function normalizeArtist(artist: string): string {
   return artist.trim() || 'Unknown Artist';
 }
 
+function primaryArtist(artist: string): string {
+  const displayArtist = normalizeArtist(artist);
+  // ID3 artist fields often list the lead artist before collaborators.
+  return displayArtist.split(/\s*(?:\/|;)\s*|\s+\(?(?:feat(?:uring)?|ft)\.?(?=\s|$)\s+/i)[0].trim() || displayArtist;
+}
+
+function primaryArtistKey(artist: string): string {
+  return primaryArtist(artist).toLocaleLowerCase();
+}
+
 function normalizeFileName(fileName: string): string {
   return fileName.normalize('NFC').toLowerCase();
 }
@@ -215,6 +225,16 @@ async function openStore(): Promise<SQLiteDatabase> {
         ) WITHOUT ROWID;
       `);
       await migrateUriTracks(db);
+      const schemaVersion = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+      if ((schemaVersion?.user_version ?? 0) < 1) {
+        await db.withExclusiveTransactionAsync(async (txn) => {
+          const tracks = await txn.getAllAsync<{ id: number; artist: string }>('SELECT id, artist FROM tracks');
+          for (const track of tracks) {
+            await txn.runAsync('UPDATE tracks SET artist_key = ? WHERE id = ?', primaryArtistKey(track.artist), track.id);
+          }
+          await txn.execAsync('PRAGMA user_version = 1');
+        });
+      }
       return db;
     })().catch((error) => {
       databasePromise = null;
@@ -260,7 +280,7 @@ export async function updateTrackDetails(fileName: string, title: string, artist
     await db.runAsync(`
       INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(song_key) DO UPDATE SET title = excluded.title, artist = excluded.artist, artist_key = excluded.artist_key
-    `, key, fileName, title.trim() || fileName, displayArtist, displayArtist.toLocaleLowerCase());
+    `, key, fileName, title.trim() || fileName, displayArtist, primaryArtistKey(displayArtist));
   });
 }
 
@@ -283,7 +303,7 @@ export async function recordListening(entries: ListeningEntry[]): Promise<void> 
         await txn.runAsync(`
           INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)
           ON CONFLICT(song_key) DO UPDATE SET title = excluded.title, artist = excluded.artist, artist_key = excluded.artist_key
-        `, key, entry.fileName, entry.title.trim() || entry.fileName, displayArtist, displayArtist.toLocaleLowerCase());
+        `, key, entry.fileName, entry.title.trim() || entry.fileName, displayArtist, primaryArtistKey(displayArtist));
         const track = await txn.getFirstAsync<{ id: number }>('SELECT id FROM tracks WHERE song_key = ?', key);
         if (!track) throw new Error('Track was not stored');
         const periods: [string, string][] = [['year', yearlyKey(entry.day)], ['all', '*']];
@@ -351,7 +371,7 @@ export async function getWrappedSummary(period: WrappedPeriod, key: string): Pro
   ]);
   return {
     listenedMs: total?.listenedMs ?? 0,
-    artists,
+    artists: artists.map((artist) => ({ ...artist, name: primaryArtist(artist.name) })),
     songs,
     longestDay: longestDay ?? null,
     longestMonth: longestMonth ?? null,
@@ -408,7 +428,7 @@ export async function restoreWrappedBackup(contents: string): Promise<void> {
       await txn.execAsync('DELETE FROM period_stats; DELETE FROM tracks; DELETE FROM day_totals; DELETE FROM month_totals;');
       for (const track of backup.tracks) {
         await txn.runAsync(`INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)`,
-          track.songKey, track.fileName, track.title, track.artist, track.artistKey);
+          track.songKey, track.fileName, track.title, track.artist, primaryArtistKey(track.artist));
       }
       const savedTracks = await txn.getAllAsync<{ id: number; song_key: string }>('SELECT id, song_key FROM tracks');
       const ids = new Map(savedTracks.map((track) => [track.song_key, track.id]));

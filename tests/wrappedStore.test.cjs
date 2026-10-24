@@ -161,6 +161,41 @@ test('matching filenames in different folders accumulate under one hashed song I
   assert.equal((await store.getWrappedSummary('all', '*')).songs[0].listenedMs, 75_000);
 });
 
+test('Wrapped groups existing and new featured credits under the lead artist', async () => {
+  const database = new TestDatabase();
+  const store = loadStore(database);
+  await store.getAvailableYears();
+  const today = store.localDay(new Date());
+  const year = today.slice(0, 4);
+  const insertTrack = database.db.prepare('INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)');
+  insertTrack.run(hashName('solo.mp3'), 'solo.mp3', 'Solo', 'Playboi Carti', 'playboi carti');
+  insertTrack.run(hashName('duet.mp3'), 'duet.mp3', 'Duet', 'Playboi Carti/Red Coldhearted', 'playboi carti/red coldhearted');
+  const insertPeriod = database.db.prepare('INSERT INTO period_stats (grain, period, track_id, listened_ms, plays) VALUES (?, ?, ?, ?, ?)');
+  for (const track of database.db.prepare('SELECT id FROM tracks').all()) {
+    for (const [grain, period] of [['day', today], ['week', store.weekStart(today)], ['month', today.slice(0, 7)], ['year', year], ['all', '*']]) {
+      insertPeriod.run(grain, period, track.id, 60_000, 1);
+    }
+  }
+  database.db.exec('PRAGMA user_version = 0');
+  const upgraded = loadStore(database);
+  for (const [period, key] of [['day', today], ['week', store.weekStart(today)], ['month', today.slice(0, 7)], ['year', year], ['all', '*']]) {
+    const summary = await upgraded.getWrappedSummary(period, key);
+    assert.deepEqual(summary.artists.map(({ name, listenedMs }) => ({ name, listenedMs })), [{ name: 'Playboi Carti', listenedMs: 120_000 }]);
+    assert.equal(summary.songs.find(({ name }) => name === 'Duet').artist, 'Playboi Carti/Red Coldhearted');
+  }
+  assert.equal(database.db.prepare('PRAGMA user_version').get().user_version, 1);
+
+  await upgraded.recordListening([{ uri: 'third.mp3', fileName: 'third.mp3', title: 'Third', artist: 'Playboi Carti feat. Guest', day: today, listenedMs: 30_000, plays: 1 }]);
+  await upgraded.recordListening([{ uri: 'fourth.mp3', fileName: 'fourth.mp3', title: 'Fourth', artist: 'Playboi Carti ft Guest', day: today, listenedMs: 30_000, plays: 1 }]);
+  assert.deepEqual((await upgraded.getWrappedSummary('all', '*')).artists.map(({ name, listenedMs }) => ({ name, listenedMs })), [{ name: 'Playboi Carti', listenedMs: 180_000 }]);
+
+  const oldBackup = JSON.parse(await upgraded.exportWrappedBackup());
+  for (const track of oldBackup.tracks) track.artistKey = track.artist.toLowerCase();
+  const restored = loadStore(new TestDatabase());
+  await restored.restoreWrappedBackup(JSON.stringify(oldBackup));
+  assert.deepEqual((await restored.getWrappedSummary('all', '*')).artists.map(({ name, listenedMs }) => ({ name, listenedMs })), [{ name: 'Playboi Carti', listenedMs: 180_000 }]);
+});
+
 test('Wrapped backup restores annual, current, all-time and milestone totals', async () => {
   const original = loadStore(new TestDatabase());
   const today = original.localDay(new Date());
