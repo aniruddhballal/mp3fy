@@ -36,7 +36,8 @@
           "style": "dark"
         }
       ],
-      "./plugins/withPatchedExpoAudio"
+      "./plugins/withPatchedExpoAudio",
+      "expo-sqlite"
     ]
   }
 }
