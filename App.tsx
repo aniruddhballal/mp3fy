@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { setAudioModeAsync, useAudioPlaylist, useAudioPlaylistStatus, type AudioPlaylistStatus } from 'expo-audio';
 import { Directory, File, Paths } from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -1145,7 +1146,7 @@ const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScan
   return (
     <View style={styles.screen}>
       <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{folders.length} FOLDERS</Text><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
-      <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><View style={styles.libraryActions}><ActionButton label="ADD SONG" onPress={onAddSong} secondary /><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View></View>
+      <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><View style={styles.libraryActions}><Pressable accessibilityRole="button" accessibilityLabel="Add song" accessibilityHint="Choose an MP3 file" onPress={onAddSong} style={({ pressed }) => [styles.libraryIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="music-note-plus" size={27} color="#000000" /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Add folder" accessibilityHint="Choose a folder of MP3 files" onPress={onAddFolder} style={({ pressed }) => [styles.libraryIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="folder-plus-outline" size={27} color="#000000" /></Pressable></View></View>
       {isScanning && !folders.length ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><View style={styles.folderMetaRow}><Text style={styles.folderMeta}>{item.count}</Text>{scanningFolderUris.has(item.folder.uri) ? <ActivityIndicator color="#000000" size="small" /> : null}</View></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} initialNumToRender={8} maxToRenderPerBatch={8} removeClippedSubviews windowSize={5} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
       <View style={styles.footer}><Text style={styles.footerText}>1.5.3</Text></View>
     </View>
@@ -1228,7 +1229,8 @@ const styles = StyleSheet.create({
   screenTitle: { color: '#000000', fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
   screenSubtitle: { color: '#555555', fontSize: 12, marginTop: 5 },
   helperText: { color: '#555555', fontSize: 12, lineHeight: 18, marginTop: 14 },
-  libraryActions: { gap: 8, marginLeft: 12 },
+  libraryActions: { flexDirection: 'row', gap: 8, marginLeft: 12 },
+  libraryIconButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 48, justifyContent: 'center', width: 48 },
   button: { alignItems: 'center', backgroundColor: '#000000', height: 48, justifyContent: 'center', minWidth: 112, paddingHorizontal: 14 },
   secondaryButton: { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 1 },
   buttonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
