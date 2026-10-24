@@ -6,9 +6,9 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 ## Current status
 
-The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during startup and folder operations. Playback queues always stay within the folder where the track was selected.
+The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during startup and folder operations. It restores the last song, folder, and playback position after reopening, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected.
 
-The current Android release is version `1.4.19` (`versionCode` `34`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk` and is approximately 12 MB.
+The current Android release is version `1.4.20` (`versionCode` `35`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk` and is approximately 12 MB.
 
 ## Planned workflow
 

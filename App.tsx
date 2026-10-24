@@ -23,6 +23,7 @@ import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
+const PLAYBACK_KEY = 'mp3fy.playback.v1';
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const MARQUEE_FADE_WIDTH = 28;
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 1000;
@@ -37,6 +38,27 @@ type Track = { folderName: string; folderUri: string; name: string; uri: string 
 type TrackMetadata = { title: string; artist: string; album: string; trackNumber: string };
 type PlaybackMode = 'shuffle' | 'sequential';
 type RepeatMode = 'all' | 'one';
+type SavedPlayback = {
+  track: Track;
+  queueUris: string[];
+  currentTime: number;
+  mode: PlaybackMode;
+  repeatMode: RepeatMode;
+  standalone: boolean;
+};
+
+function isSavedPlayback(value: unknown): value is SavedPlayback {
+  if (!value || typeof value !== 'object') return false;
+  const saved = value as Partial<SavedPlayback>;
+  const track = saved.track;
+  return Boolean(track && typeof track.uri === 'string' && typeof track.name === 'string'
+    && typeof track.folderUri === 'string' && typeof track.folderName === 'string'
+    && Array.isArray(saved.queueUris) && saved.queueUris.every((uri) => typeof uri === 'string')
+    && typeof saved.currentTime === 'number' && Number.isFinite(saved.currentTime) && saved.currentTime >= 0
+    && (saved.mode === 'shuffle' || saved.mode === 'sequential')
+    && (saved.repeatMode === 'all' || saved.repeatMode === 'one')
+    && typeof saved.standalone === 'boolean');
+}
 type Screen =
   | { kind: 'folders' }
   | { kind: 'songs'; folderUri: string }
@@ -489,6 +511,20 @@ function Mp3fyApp() {
   const [folderToConfirm, setFolderToConfirm] = useState<Folder | null>(null);
   const [scanningFolderUris, setScanningFolderUris] = useState<Set<string>>(new Set());
   const [isInitialized, setIsInitialized] = useState(false);
+  const pendingRestorePosition = useRef<number | null>(null);
+  const latestPlayback = useRef<SavedPlayback | null>(null);
+  const lastSavedPlayback = useRef<string | null>(null);
+  const storageWrite = useRef<Promise<void>>(Promise.resolve());
+  const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const savePlayback = useCallback((playback: SavedPlayback | null) => {
+    const serialized = playback ? JSON.stringify(playback) : null;
+    if (serialized === lastSavedPlayback.current) return;
+    lastSavedPlayback.current = serialized;
+    storageWrite.current = storageWrite.current.catch(() => undefined).then(() => serialized
+      ? AsyncStorage.setItem(PLAYBACK_KEY, serialized)
+      : AsyncStorage.removeItem(PLAYBACK_KEY));
+  }, []);
 
   const trackCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -523,28 +559,18 @@ function Mp3fyApp() {
   }, []);
 
   useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
-    pruneArtworkCache();
-    AsyncStorage.getItem(FOLDERS_KEY).then(async (stored) => {
-      if (!stored) return;
-      try {
-        const savedFolders = JSON.parse(stored) as Folder[];
-        if (savedFolders.length) await rescan(savedFolders);
-      } catch {
-        setNotice('Saved folders could not be restored.');
-      }
-    }).finally(() => setIsInitialized(true));
-  }, [rescan]);
-
-  useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background' || nextState === 'inactive') {
+        const playback = latestPlayback.current;
+        if (playback) savePlayback({ ...playback, currentTime: pendingRestorePosition.current ?? Math.max(0, Math.floor(player.currentTime)) });
+      }
       if (currentTrack && nextState !== 'unknown') {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
         callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
       }
     });
     return () => subscription.remove();
-  }, [artworkCache, currentMetadata, currentTrack, player]);
+  }, [artworkCache, currentMetadata, currentTrack, player, savePlayback]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -591,13 +617,143 @@ function Mp3fyApp() {
     applyArtwork(mediaArtwork, details.metadata);
   }, [artworkCache, metadataCache, player]);
 
+  useEffect(() => {
+    let mounted = true;
+    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
+    pruneArtworkCache();
+    const restore = async () => {
+      try {
+        const values = await AsyncStorage.multiGet([FOLDERS_KEY, PLAYBACK_KEY]);
+        const storedFolders = values[0][1];
+        const storedPlayback = values[1][1];
+        let libraryTracks: Track[] = [];
+        if (storedFolders) {
+          try {
+            const savedFolders: unknown = JSON.parse(storedFolders);
+            if (!Array.isArray(savedFolders)) throw new Error('Invalid folders');
+            libraryTracks = await rescan(savedFolders as Folder[]);
+          } catch {
+            setNotice('Saved folders could not be restored.');
+          }
+        }
+        if (!mounted || !storedPlayback) return;
+        lastSavedPlayback.current = storedPlayback;
+        let saved: unknown;
+        try {
+          saved = JSON.parse(storedPlayback);
+        } catch {
+          savePlayback(null);
+          return;
+        }
+        if (!isSavedPlayback(saved)) {
+          savePlayback(null);
+          return;
+        }
+        const knownTracks = new Map(libraryTracks.map((track) => [track.uri, track]));
+        if (saved.standalone && !knownTracks.has(saved.track.uri)) {
+          try {
+            if (new File(saved.track.uri).exists) knownTracks.set(saved.track.uri, saved.track);
+          } catch {
+            // The selected song may have moved or its access may have been revoked.
+          }
+        }
+        const selectedTrack = knownTracks.get(saved.track.uri);
+        if (!selectedTrack) {
+          savePlayback(null);
+          setNotice('The last song is no longer available. Select it again to continue.');
+          return;
+        }
+        const restoredQueue = saved.queueUris.map((uri) => knownTracks.get(uri)).filter((track): track is Track => Boolean(track));
+        const nextQueue = restoredQueue.some((track) => track.uri === selectedTrack.uri)
+          ? restoredQueue
+          : buildQueue(libraryTracks.length ? libraryTracks : [selectedTrack], selectedTrack, saved.mode).queue;
+        const nextIndex = nextQueue.findIndex((track) => track.uri === selectedTrack.uri);
+        player.clear();
+        nextQueue.forEach((track) => player.add({ uri: track.uri }));
+        player.loop = saved.repeatMode === 'one' ? 'single' : 'all';
+        player.skipTo(nextIndex);
+        setQueue(nextQueue);
+        setQueueIndex(nextIndex);
+        setMode(saved.mode);
+        setRepeatMode(saved.repeatMode);
+        setCurrentTrack(selectedTrack);
+        setCurrentMetadata(fallbackMetadata(selectedTrack));
+        setCurrentArtwork(null);
+        setIsArtworkLoading(true);
+        setScreen({ kind: 'player', returnTo: saved.standalone ? 'folders' : 'songs' });
+        pendingRestorePosition.current = saved.currentTime;
+        void loadArtwork(selectedTrack);
+        try {
+          await player.seekTo(saved.currentTime);
+        } catch {
+          pendingRestorePosition.current = null;
+        }
+        restoreTimer.current = setTimeout(() => {
+          if (pendingRestorePosition.current === null) return;
+          pendingRestorePosition.current = null;
+          const playback = latestPlayback.current;
+          if (playback) savePlayback({ ...playback, currentTime: Math.max(0, Math.floor(player.currentTime)) });
+        }, 5000);
+      } catch {
+        setNotice('Saved playback could not be restored.');
+      } finally {
+        if (mounted) setIsInitialized(true);
+      }
+    };
+    void restore();
+    return () => {
+      mounted = false;
+      if (restoreTimer.current) clearTimeout(restoreTimer.current);
+    };
+  }, [loadArtwork, player, rescan, savePlayback]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!currentTrack) {
+      latestPlayback.current = null;
+      savePlayback(null);
+      return;
+    }
+    if (player.currentIndex !== status.currentIndex) return;
+    if (queue.length && status.currentIndex >= 0 && status.currentIndex < queue.length
+      && queue[status.currentIndex].uri !== currentTrack.uri) return;
+    const pendingPosition = pendingRestorePosition.current;
+    if (pendingPosition !== null && Math.abs(status.currentTime - pendingPosition) <= 1.5) {
+      pendingRestorePosition.current = null;
+      if (restoreTimer.current) clearTimeout(restoreTimer.current);
+      restoreTimer.current = null;
+    }
+    const playback: SavedPlayback = {
+      track: currentTrack,
+      queueUris: queue.map((track) => track.uri),
+      currentTime: pendingRestorePosition.current ?? Math.max(0, Math.floor(status.currentTime)),
+      mode,
+      repeatMode,
+      standalone: !folders.some((folder) => folder.uri === currentTrack.folderUri),
+    };
+    latestPlayback.current = playback;
+    if (pendingRestorePosition.current === null) savePlayback(playback);
+  }, [currentTrack, folders, isInitialized, mode, player, queue, repeatMode, savePlayback, status.currentIndex, status.currentTime]);
+
   const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, nextRepeatMode: RepeatMode = repeatMode) => {
     const nextTrack = nextQueue[nextIndex];
     if (!nextTrack) return;
+    pendingRestorePosition.current = 0;
+    if (restoreTimer.current) clearTimeout(restoreTimer.current);
     player.clear();
     nextQueue.forEach((track) => player.add({ uri: track.uri }));
     player.loop = nextRepeatMode === 'one' ? 'single' : 'all';
     player.skipTo(nextIndex);
+    const playback: SavedPlayback = {
+      track: nextTrack,
+      queueUris: nextQueue.map((track) => track.uri),
+      currentTime: 0,
+      mode,
+      repeatMode: nextRepeatMode,
+      standalone: !folders.some((folder) => folder.uri === nextTrack.folderUri),
+    };
+    latestPlayback.current = playback;
+    savePlayback(playback);
     setQueue(nextQueue);
     setQueueIndex(nextIndex);
     setCurrentTrack(nextTrack);
@@ -607,8 +763,14 @@ function Mp3fyApp() {
     setIsArtworkLoading(true);
     callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy' });
     player.play();
+    restoreTimer.current = setTimeout(() => {
+      if (pendingRestorePosition.current === null) return;
+      pendingRestorePosition.current = null;
+      const current = latestPlayback.current;
+      if (current) savePlayback({ ...current, currentTime: Math.max(0, Math.floor(player.currentTime)) });
+    }, 5000);
     void loadArtwork(nextTrack);
-  }, [loadArtwork, player, repeatMode]);
+  }, [folders, loadArtwork, mode, player, repeatMode, savePlayback]);
 
   const replaceQueueWithoutInterrupt = useCallback((nextQueue: Track[], nextIndex: number) => {
     const activeNativeIndex = player.currentIndex;
@@ -631,6 +793,7 @@ function Mp3fyApp() {
 
   useEffect(() => {
     if (!queue.length || status.currentIndex < 0 || status.currentIndex >= queue.length) return;
+    if (player.currentIndex !== status.currentIndex) return;
     const nextTrack = queue[status.currentIndex];
     setQueueIndex(status.currentIndex);
     if (currentTrack?.uri === nextTrack.uri) return;
@@ -684,11 +847,17 @@ function Mp3fyApp() {
   }, [startPlayback]);
 
   const playNext = useCallback(() => {
-    if (queue.length) player.next();
+    if (queue.length) {
+      pendingRestorePosition.current = null;
+      if (restoreTimer.current) clearTimeout(restoreTimer.current);
+      player.next();
+    }
   }, [player, queue.length]);
 
   const playPrevious = useCallback(() => {
     if (!queue.length) return;
+    pendingRestorePosition.current = null;
+    if (restoreTimer.current) clearTimeout(restoreTimer.current);
     if (status.currentTime > 3) {
       player.seekTo(0).catch(() => undefined);
       return;
@@ -744,6 +913,10 @@ function Mp3fyApp() {
       setTracks((existing) => existing.filter((track) => track.folderUri !== folder.uri));
       if (screen.kind === 'songs' && screen.folderUri === folder.uri) setScreen({ kind: 'folders' });
       if (currentTrack?.folderUri === folder.uri) {
+        pendingRestorePosition.current = null;
+        if (restoreTimer.current) clearTimeout(restoreTimer.current);
+        latestPlayback.current = null;
+        savePlayback(null);
         player.pause();
         player.clear();
         callOptionalPlayerMethod(player, 'setActiveForLockScreen', false);
@@ -757,19 +930,33 @@ function Mp3fyApp() {
     } catch {
       setNotice('The folder could not be removed.');
     }
-  }, [currentTrack, folders, player, screen]);
+  }, [currentTrack, folders, player, savePlayback, screen]);
 
   const openFolder = useCallback((folder: Folder) => setScreen({ kind: 'songs', folderUri: folder.uri }), []);
   const togglePlayback = useCallback(() => {
-    if (status.playing) player.pause();
-    else player.play();
-  }, [player, status.playing]);
+    pendingRestorePosition.current = null;
+    if (restoreTimer.current) clearTimeout(restoreTimer.current);
+    if (status.playing) {
+      player.pause();
+      const playback = latestPlayback.current;
+      if (playback) savePlayback({ ...playback, currentTime: Math.max(0, Math.floor(player.currentTime)) });
+    } else player.play();
+  }, [player, savePlayback, status.playing]);
   const seek = (event: { nativeEvent: { locationX: number } }) => {
     if (!progressWidth || !status.duration) return;
+    pendingRestorePosition.current = null;
+    if (restoreTimer.current) clearTimeout(restoreTimer.current);
     const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / progressWidth));
-    player.seekTo(ratio * status.duration).catch(() => undefined);
+    const nextTime = ratio * status.duration;
+    player.seekTo(nextTime).then(() => {
+      const playback = latestPlayback.current;
+      if (playback) savePlayback({ ...playback, currentTime: Math.floor(nextTime) });
+    }).catch(() => undefined);
   };
-  const progress = status.duration ? Math.min(1, status.currentTime / status.duration) : 0;
+  const displayedStatus = pendingRestorePosition.current === null
+    ? status
+    : { ...status, currentTime: pendingRestorePosition.current };
+  const progress = displayedStatus.duration ? Math.min(1, displayedStatus.currentTime / displayedStatus.duration) : 0;
 
   const openPlayerFromMini = useCallback(() => {
     if (currentTrack) setScreen({ kind: 'player', returnTo: screen.kind === 'songs' ? 'songs' : 'folders' });
@@ -801,7 +988,7 @@ function Mp3fyApp() {
           ) : screen.kind === 'songs' && selectedFolder ? (
             <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} />
           ) : currentTrack ? (
-            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={status} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
+            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
           ) : null}
 
           {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={togglePlayback} onNext={playNext} /> : null}
