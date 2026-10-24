@@ -181,19 +181,23 @@ test('Wrapped groups existing and new featured credits under the lead artist', a
   for (const [period, key] of [['day', today], ['week', store.weekStart(today)], ['month', today.slice(0, 7)], ['year', year], ['all', '*']]) {
     const summary = await upgraded.getWrappedSummary(period, key);
     assert.deepEqual(summary.artists.map(({ name, listenedMs }) => ({ name, listenedMs })), [{ name: 'Playboi Carti', listenedMs: 120_000 }]);
-    assert.equal(summary.songs.find(({ name }) => name === 'Duet').artist, 'Playboi Carti/Red Coldhearted');
+    assert.equal(summary.songs.find(({ name }) => name === 'Duet').artist, 'Playboi Carti');
   }
-  assert.equal(database.db.prepare('PRAGMA user_version').get().user_version, 1);
+  assert.equal(database.db.prepare('PRAGMA user_version').get().user_version, 2);
+  assert.equal(database.db.prepare("SELECT artist FROM tracks WHERE title = 'Duet'").get().artist, 'Playboi Carti');
 
   await upgraded.recordListening([{ uri: 'third.mp3', fileName: 'third.mp3', title: 'Third', artist: 'Playboi Carti feat. Guest', day: today, listenedMs: 30_000, plays: 1 }]);
   await upgraded.recordListening([{ uri: 'fourth.mp3', fileName: 'fourth.mp3', title: 'Fourth', artist: 'Playboi Carti ft Guest', day: today, listenedMs: 30_000, plays: 1 }]);
   assert.deepEqual((await upgraded.getWrappedSummary('all', '*')).artists.map(({ name, listenedMs }) => ({ name, listenedMs })), [{ name: 'Playboi Carti', listenedMs: 180_000 }]);
 
   const oldBackup = JSON.parse(await upgraded.exportWrappedBackup());
-  for (const track of oldBackup.tracks) track.artistKey = track.artist.toLowerCase();
+  const duet = oldBackup.tracks.find(({ title }) => title === 'Duet');
+  duet.artist = 'Playboi Carti/Red Coldhearted';
+  duet.artistKey = duet.artist.toLowerCase();
   const restored = loadStore(new TestDatabase());
   await restored.restoreWrappedBackup(JSON.stringify(oldBackup));
   assert.deepEqual((await restored.getWrappedSummary('all', '*')).artists.map(({ name, listenedMs }) => ({ name, listenedMs })), [{ name: 'Playboi Carti', listenedMs: 180_000 }]);
+  assert.equal((await restored.getWrappedSummary('all', '*')).songs.find(({ name }) => name === 'Duet').artist, 'Playboi Carti');
 });
 
 test('Wrapped backup restores annual, current, all-time and milestone totals', async () => {

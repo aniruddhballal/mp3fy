@@ -226,13 +226,14 @@ async function openStore(): Promise<SQLiteDatabase> {
       `);
       await migrateUriTracks(db);
       const schemaVersion = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-      if ((schemaVersion?.user_version ?? 0) < 1) {
+      if ((schemaVersion?.user_version ?? 0) < 2) {
         await db.withExclusiveTransactionAsync(async (txn) => {
           const tracks = await txn.getAllAsync<{ id: number; artist: string }>('SELECT id, artist FROM tracks');
           for (const track of tracks) {
-            await txn.runAsync('UPDATE tracks SET artist_key = ? WHERE id = ?', primaryArtistKey(track.artist), track.id);
+            const artist = primaryArtist(track.artist);
+            await txn.runAsync('UPDATE tracks SET artist = ?, artist_key = ? WHERE id = ?', artist, primaryArtistKey(artist), track.id);
           }
-          await txn.execAsync('PRAGMA user_version = 1');
+          await txn.execAsync('PRAGMA user_version = 2');
         });
       }
       return db;
@@ -275,7 +276,7 @@ export async function initializeWrappedStore(): Promise<void> {
 export async function updateTrackDetails(fileName: string, title: string, artist: string): Promise<void> {
   await enqueueWrite(async () => {
     const db = await openStore();
-    const displayArtist = normalizeArtist(artist);
+    const displayArtist = primaryArtist(artist);
     const key = await songKey(fileName);
     await db.runAsync(`
       INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)
@@ -298,7 +299,7 @@ export async function recordListening(entries: ListeningEntry[]): Promise<void> 
       const currentWeek = weekStart(today);
       const currentMonth = monthlyKey(today);
       for (const entry of valid) {
-        const displayArtist = normalizeArtist(entry.artist);
+        const displayArtist = primaryArtist(entry.artist);
         const key = await songKey(entry.fileName);
         await txn.runAsync(`
           INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)
@@ -428,7 +429,7 @@ export async function restoreWrappedBackup(contents: string): Promise<void> {
       await txn.execAsync('DELETE FROM period_stats; DELETE FROM tracks; DELETE FROM day_totals; DELETE FROM month_totals;');
       for (const track of backup.tracks) {
         await txn.runAsync(`INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)`,
-          track.songKey, track.fileName, track.title, track.artist, primaryArtistKey(track.artist));
+          track.songKey, track.fileName, track.title, primaryArtist(track.artist), primaryArtistKey(track.artist));
       }
       const savedTracks = await txn.getAllAsync<{ id: number; song_key: string }>('SELECT id, song_key FROM tracks');
       const ids = new Map(savedTracks.map((track) => [track.song_key, track.id]));
