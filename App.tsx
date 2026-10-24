@@ -575,7 +575,7 @@ function Mp3fyApp() {
     const track = queue[index] ?? currentTrack;
     const metadata = track?.uri === currentTrack?.uri ? currentMetadata : track ? metadataCache.get(track.uri) : null;
     tracker.observe({
-      track: track ? { uri: track.uri, title: metadata?.title || fallbackMetadata(track).title, artist: metadata?.artist || fallbackMetadata(track).artist } : null,
+      track: track ? { uri: track.uri, fileName: track.name, title: metadata?.title || fallbackMetadata(track).title, artist: metadata?.artist || fallbackMetadata(track).artist } : null,
       positionSeconds: currentTime,
       durationSeconds: duration,
       playing,
@@ -657,8 +657,8 @@ function Mp3fyApp() {
     if (artworkCache.has(track.uri) && cachedMetadata) {
       rememberCacheValue(artworkCache, track.uri, artworkCache.get(track.uri) ?? null, MAX_MEMORY_ARTWORK_ENTRIES);
       rememberCacheValue(metadataCache, track.uri, cachedMetadata, MAX_MEMORY_METADATA_ENTRIES);
-      tracker.updateMetadata({ uri: track.uri, title: cachedMetadata.title, artist: cachedMetadata.artist });
-      void updateTrackDetails(track.uri, cachedMetadata.title, cachedMetadata.artist).catch(() => undefined);
+      tracker.updateMetadata({ uri: track.uri, fileName: track.name, title: cachedMetadata.title, artist: cachedMetadata.artist });
+      void updateTrackDetails(track.name, cachedMetadata.title, cachedMetadata.artist).catch(() => undefined);
       applyArtwork(artworkCache.get(track.uri) ?? null, cachedMetadata);
       return;
     }
@@ -666,8 +666,8 @@ function Mp3fyApp() {
     const mediaArtwork = details.artwork ? await materializeArtwork(details.artwork, track.uri) : null;
     rememberCacheValue(artworkCache, track.uri, mediaArtwork, MAX_MEMORY_ARTWORK_ENTRIES);
     rememberCacheValue(metadataCache, track.uri, details.metadata, MAX_MEMORY_METADATA_ENTRIES);
-    tracker.updateMetadata({ uri: track.uri, title: details.metadata.title, artist: details.metadata.artist });
-    void updateTrackDetails(track.uri, details.metadata.title, details.metadata.artist).catch(() => undefined);
+    tracker.updateMetadata({ uri: track.uri, fileName: track.name, title: details.metadata.title, artist: details.metadata.artist });
+    void updateTrackDetails(track.name, details.metadata.title, details.metadata.artist).catch(() => undefined);
     applyArtwork(mediaArtwork, details.metadata);
   }, [artworkCache, metadataCache, player, tracker]);
 

@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
@@ -20,11 +21,16 @@ class TestDatabase {
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'wrappedStore.ts'), 'utf8');
 const javascript = typescript.transpileModule(source, { compilerOptions: { module: typescript.ModuleKind.CommonJS, target: typescript.ScriptTarget.ES2020 } }).outputText;
+const hashName = (name) => createHash('sha256').update(name.normalize('NFC').toLowerCase()).digest('hex');
 
 function loadStore(database, Clock = Date) {
   const store = {};
   new Function('require', 'exports', 'Date', javascript)((id) => {
     if (id === 'expo-sqlite') return { openDatabaseAsync: async () => database };
+    if (id === 'expo-crypto') return {
+      CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
+      digestStringAsync: async (_algorithm, value) => createHash('sha256').update(value).digest('hex'),
+    };
     throw new Error(`Unexpected import: ${id}`);
   }, store, Clock);
   return store;
@@ -41,8 +47,8 @@ test('expired rankings vanish while annual and all-time history and milestones s
   const oldMonth = oldDay.slice(0, 7);
   const currentMonth = today.slice(0, 7);
 
-  database.db.prepare('INSERT INTO tracks (id, uri, title, artist, artist_key) VALUES (1, ?, ?, ?, ?)').run('old/song.mp3', 'Old song', 'Old artist', 'old artist');
-  database.db.prepare('INSERT INTO tracks (id, uri, title, artist, artist_key) VALUES (2, ?, ?, ?, ?)').run('new/song.mp3', 'New song', 'New artist', 'new artist');
+  database.db.prepare('INSERT INTO tracks (id, song_key, file_name, title, artist, artist_key) VALUES (1, ?, ?, ?, ?, ?)').run(hashName('old-song.mp3'), 'old-song.mp3', 'Old song', 'Old artist', 'old artist');
+  database.db.prepare('INSERT INTO tracks (id, song_key, file_name, title, artist, artist_key) VALUES (2, ?, ?, ?, ?, ?)').run(hashName('new-song.mp3'), 'new-song.mp3', 'New song', 'New artist', 'new artist');
   const insertPeriod = database.db.prepare('INSERT INTO period_stats (grain, period, track_id, listened_ms, plays) VALUES (?, ?, ?, ?, ?)');
   for (const [grain, period] of [['day', oldDay], ['month', oldMonth], ['year', oldYear], ['all', '*']]) insertPeriod.run(grain, period, 1, 60_000, 1);
   for (const [grain, period] of [['day', today], ['month', currentMonth], ['year', currentYear], ['all', '*']]) insertPeriod.run(grain, period, 2, 30_000, 1);
@@ -61,12 +67,12 @@ test('expired rankings vanish while annual and all-time history and milestones s
   assert.equal((await store.getWrappedSummary('all', '*')).listenedMs, 90_000);
   assert.ok((await store.getAvailableYears()).includes(oldYear));
 
-  await store.recordListening([{ uri: 'new/song.mp3', title: 'New song', artist: 'New artist', day: today, listenedMs: 10_000, plays: 0 }]);
+  await store.recordListening([{ uri: 'new/song.mp3', fileName: 'new-song.mp3', title: 'New song', artist: 'New artist', day: today, listenedMs: 10_000, plays: 0 }]);
   assert.equal((await store.getWrappedSummary('day', today)).listenedMs, 40_000);
   assert.equal((await store.getWrappedSummary('week', store.weekStart(today))).listenedMs, 40_000);
   assert.equal((await store.getWrappedSummary('month', currentMonth)).listenedMs, 40_000);
 
-  await store.recordListening([{ uri: 'old/song.mp3', title: 'Old song', artist: 'Old artist', day: oldDay, listenedMs: 5_000, plays: 0 }]);
+  await store.recordListening([{ uri: 'old/song.mp3', fileName: 'old-song.mp3', title: 'Old song', artist: 'Old artist', day: oldDay, listenedMs: 5_000, plays: 0 }]);
   assert.equal((await store.getWrappedSummary('year', oldYear)).listenedMs, 65_000);
   assert.equal((await store.getWrappedSummary('month', oldMonth)).listenedMs, 0);
   assert.deepEqual({ ...(await store.getWrappedSummary('year', oldYear)).longestMonth }, { period: oldMonth, listenedMs: 65_000 });
@@ -81,7 +87,7 @@ test('day, week and month rankings expire at their boundaries', async () => {
   }
   const database = new TestDatabase();
   const store = loadStore(database, ClockDate);
-  const track = { uri: 'boundary/song.mp3', title: 'Boundary', artist: 'Artist' };
+  const track = { uri: 'boundary/song.mp3', fileName: 'song.mp3', title: 'Boundary', artist: 'Artist' };
   await store.recordListening([{ ...track, day: '2026-10-31', listenedMs: 30_000, plays: 1 }]);
   assert.equal((await store.getWrappedSummary('day', '2026-10-31')).listenedMs, 30_000);
   assert.equal((await store.getWrappedSummary('week', '2026-10-26')).listenedMs, 30_000);
@@ -103,4 +109,54 @@ test('day, week and month rankings expire at their boundaries', async () => {
   assert.equal((await store.getWrappedSummary('month', '2026-11')).listenedMs, 10_000);
   assert.equal((await store.getWrappedSummary('year', '2026')).listenedMs, 40_000);
   assert.equal((await store.getWrappedSummary('all', '*')).listenedMs, 40_000);
+});
+
+test('legacy URI histories merge by filename without losing plays or listening time', async () => {
+  const database = new TestDatabase();
+  database.db.exec(`
+    CREATE TABLE tracks (id INTEGER PRIMARY KEY, uri TEXT NOT NULL UNIQUE, title TEXT NOT NULL, artist TEXT NOT NULL, artist_key TEXT NOT NULL);
+    CREATE TABLE period_stats (grain TEXT NOT NULL, period TEXT NOT NULL, track_id INTEGER NOT NULL REFERENCES tracks(id), listened_ms INTEGER NOT NULL DEFAULT 0, plays INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (grain, period, track_id)) WITHOUT ROWID;
+  `);
+  const insertTrack = database.db.prepare('INSERT INTO tracks (id, uri, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)');
+  insertTrack.run(1, 'content://provider/document/primary%3AMusic%2FPlaylistA%2FSong.mp3', 'Song', 'Artist', 'artist');
+  insertTrack.run(2, 'content://provider/document/primary%3AMusic%2FPlaylistB%2FSong.mp3', 'Song', 'Artist', 'artist');
+  insertTrack.run(3, 'content://provider/document/primary%3AMusic%2FOther.mp3', 'Song', 'Artist', 'artist');
+  const insertPeriod = database.db.prepare('INSERT INTO period_stats (grain, period, track_id, listened_ms, plays) VALUES (?, ?, ?, ?, ?)');
+  for (const grain of ['year', 'all']) {
+    const period = grain === 'year' ? '2025' : '*';
+    insertPeriod.run(grain, period, 1, 60_000, 1);
+    insertPeriod.run(grain, period, 2, 90_000, 2);
+    insertPeriod.run(grain, period, 3, 30_000, 1);
+  }
+
+  const store = loadStore(database);
+  await store.initializeWrappedStore();
+  const tracks = database.db.prepare('SELECT song_key, file_name FROM tracks ORDER BY file_name').all();
+  assert.equal(tracks.length, 2);
+  assert.deepEqual(tracks.map((track) => track.file_name), ['Other.mp3', 'Song.mp3']);
+  assert.equal(tracks.find((track) => track.file_name === 'Song.mp3').song_key, hashName('Song.mp3'));
+  assert.equal(database.db.prepare('SELECT COUNT(*) AS count FROM period_stats').get().count, 4);
+  assert.equal((await store.getWrappedSummary('year', '2025')).listenedMs, 180_000);
+  assert.deepEqual((await store.getWrappedSummary('year', '2025')).songs.map(({ name, plays }) => ({ name, plays })), [
+    { name: 'Song', plays: 3 }, { name: 'Song', plays: 1 },
+  ]);
+
+  const today = store.localDay(new Date());
+  await store.recordListening([{ uri: 'new-folder/song.mp3', fileName: 'song.MP3', title: 'Song', artist: 'Artist', day: today, listenedMs: 30_000, plays: 1 }]);
+  assert.equal(database.db.prepare('SELECT COUNT(*) AS count FROM tracks').get().count, 2);
+  assert.equal((await store.getWrappedSummary('all', '*')).songs[0].plays, 4);
+  assert.equal((await store.getWrappedSummary('all', '*')).listenedMs, 210_000);
+});
+
+test('matching filenames in different folders accumulate under one hashed song ID', async () => {
+  const database = new TestDatabase();
+  const store = loadStore(database);
+  const today = store.localDay(new Date());
+  const first = { uri: 'folder-a/Track.mp3', fileName: 'Track.mp3', title: 'Track', artist: 'Artist', day: today, listenedMs: 30_000, plays: 1 };
+  await store.recordListening([first, { ...first, uri: 'folder-b/track.mp3', fileName: 'track.mp3', listenedMs: 45_000 }]);
+  assert.equal(database.db.prepare('SELECT COUNT(*) AS count FROM tracks').get().count, 1);
+  const track = database.db.prepare('SELECT song_key FROM tracks').get();
+  assert.equal(track.song_key, hashName('Track.mp3'));
+  assert.equal((await store.getWrappedSummary('day', today)).songs[0].plays, 2);
+  assert.equal((await store.getWrappedSummary('all', '*')).songs[0].listenedMs, 75_000);
 });

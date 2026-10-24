@@ -1,6 +1,6 @@
 import { localDay, type ListeningEntry } from './wrappedStore';
 
-export type ListeningTrack = { uri: string; title: string; artist: string };
+export type ListeningTrack = { uri: string; fileName: string; title: string; artist: string };
 export type PlaybackSample = {
   track: ListeningTrack | null;
   positionSeconds: number;

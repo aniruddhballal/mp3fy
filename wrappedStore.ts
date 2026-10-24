@@ -1,7 +1,9 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
+import * as Crypto from 'expo-crypto';
 
 export type ListeningEntry = {
   uri: string;
+  fileName: string;
   title: string;
   artist: string;
   day: string;
@@ -43,6 +45,76 @@ function normalizeArtist(artist: string): string {
   return artist.trim() || 'Unknown Artist';
 }
 
+function normalizeFileName(fileName: string): string {
+  return fileName.normalize('NFC').toLowerCase();
+}
+
+async function songKey(fileName: string): Promise<string> {
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, normalizeFileName(fileName));
+}
+
+function fileNameFromUri(uri: string): string {
+  // Old installations stored only a URI. SAF document IDs can contain encoded slashes.
+  const rawPath = uri.split(/[?#]/)[0];
+  let path = rawPath;
+  try { path = decodeURIComponent(rawPath); } catch { /* Keep a malformed legacy URI as-is. */ }
+  path = path.replace(/\\/g, '/');
+  return path.split('/').pop() || uri;
+}
+
+async function migrateUriTracks(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(tracks)');
+  if (columns.some((column) => column.name === 'song_key')) return;
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await txn.execAsync(`
+      CREATE TABLE tracks_by_name (
+        id INTEGER PRIMARY KEY,
+        song_key TEXT NOT NULL UNIQUE,
+        file_name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        artist TEXT NOT NULL,
+        artist_key TEXT NOT NULL
+      );
+      CREATE TABLE period_stats_by_name (
+        grain TEXT NOT NULL,
+        period TEXT NOT NULL,
+        track_id INTEGER NOT NULL REFERENCES tracks_by_name(id),
+        listened_ms INTEGER NOT NULL DEFAULT 0,
+        plays INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (grain, period, track_id)
+      ) WITHOUT ROWID;
+    `);
+    const oldTracks = await txn.getAllAsync<{ id: number; uri: string; title: string; artist: string; artist_key: string }>(
+      'SELECT id, uri, title, artist, artist_key FROM tracks ORDER BY id'
+    );
+    for (const oldTrack of oldTracks) {
+      const fileName = fileNameFromUri(oldTrack.uri);
+      const key = await songKey(fileName);
+      await txn.runAsync(`
+        INSERT INTO tracks_by_name (song_key, file_name, title, artist, artist_key)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(song_key) DO UPDATE SET
+          title = excluded.title, artist = excluded.artist, artist_key = excluded.artist_key
+      `, key, fileName, oldTrack.title, oldTrack.artist, oldTrack.artist_key);
+      const newTrack = await txn.getFirstAsync<{ id: number }>('SELECT id FROM tracks_by_name WHERE song_key = ?', key);
+      if (!newTrack) throw new Error('Migrated track was not stored');
+      await txn.runAsync(`
+        INSERT INTO period_stats_by_name (grain, period, track_id, listened_ms, plays)
+        SELECT grain, period, ?, listened_ms, plays FROM period_stats WHERE track_id = ?
+        ON CONFLICT(grain, period, track_id) DO UPDATE SET
+          listened_ms = listened_ms + excluded.listened_ms,
+          plays = plays + excluded.plays
+      `, newTrack.id, oldTrack.id);
+    }
+    await txn.execAsync(`
+      DROP TABLE period_stats;
+      DROP TABLE tracks;
+      ALTER TABLE tracks_by_name RENAME TO tracks;
+      ALTER TABLE period_stats_by_name RENAME TO period_stats;
+    `);
+  });
+}
+
 function enqueueWrite(task: () => Promise<void>): Promise<void> {
   const write = writeQueue.then(task);
   writeQueue = write.catch(() => undefined);
@@ -58,7 +130,8 @@ async function openStore(): Promise<SQLiteDatabase> {
         PRAGMA foreign_keys = ON;
         CREATE TABLE IF NOT EXISTS tracks (
           id INTEGER PRIMARY KEY,
-          uri TEXT NOT NULL UNIQUE,
+          song_key TEXT NOT NULL UNIQUE,
+          file_name TEXT NOT NULL,
           title TEXT NOT NULL,
           artist TEXT NOT NULL,
           artist_key TEXT NOT NULL
@@ -80,6 +153,7 @@ async function openStore(): Promise<SQLiteDatabase> {
           listened_ms INTEGER NOT NULL DEFAULT 0
         ) WITHOUT ROWID;
       `);
+      await migrateUriTracks(db);
       return db;
     })().catch((error) => {
       databasePromise = null;
@@ -117,19 +191,20 @@ export async function initializeWrappedStore(): Promise<void> {
   await enqueueWrite(async () => pruneExpiredRankings(await openStore()));
 }
 
-export async function updateTrackDetails(uri: string, title: string, artist: string): Promise<void> {
+export async function updateTrackDetails(fileName: string, title: string, artist: string): Promise<void> {
   await enqueueWrite(async () => {
     const db = await openStore();
     const displayArtist = normalizeArtist(artist);
+    const key = await songKey(fileName);
     await db.runAsync(`
-      INSERT INTO tracks (uri, title, artist, artist_key) VALUES (?, ?, ?, ?)
-      ON CONFLICT(uri) DO UPDATE SET title = excluded.title, artist = excluded.artist, artist_key = excluded.artist_key
-    `, uri, title.trim() || uri, displayArtist, displayArtist.toLocaleLowerCase());
+      INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(song_key) DO UPDATE SET title = excluded.title, artist = excluded.artist, artist_key = excluded.artist_key
+    `, key, fileName, title.trim() || fileName, displayArtist, displayArtist.toLocaleLowerCase());
   });
 }
 
 export async function recordListening(entries: ListeningEntry[]): Promise<void> {
-  const valid = entries.filter((entry) => entry.uri && /^\d{4}-\d{2}-\d{2}$/.test(entry.day)
+  const valid = entries.filter((entry) => entry.uri && entry.fileName?.trim() && /^\d{4}-\d{2}-\d{2}$/.test(entry.day)
     && Number.isFinite(entry.listenedMs) && entry.listenedMs >= 0
     && Number.isInteger(entry.plays) && entry.plays >= 0
     && (entry.listenedMs > 0 || entry.plays > 0));
@@ -143,11 +218,12 @@ export async function recordListening(entries: ListeningEntry[]): Promise<void> 
       const currentMonth = monthlyKey(today);
       for (const entry of valid) {
         const displayArtist = normalizeArtist(entry.artist);
+        const key = await songKey(entry.fileName);
         await txn.runAsync(`
-          INSERT INTO tracks (uri, title, artist, artist_key) VALUES (?, ?, ?, ?)
-          ON CONFLICT(uri) DO UPDATE SET title = excluded.title, artist = excluded.artist, artist_key = excluded.artist_key
-        `, entry.uri, entry.title.trim() || entry.uri, displayArtist, displayArtist.toLocaleLowerCase());
-        const track = await txn.getFirstAsync<{ id: number }>('SELECT id FROM tracks WHERE uri = ?', entry.uri);
+          INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(song_key) DO UPDATE SET title = excluded.title, artist = excluded.artist, artist_key = excluded.artist_key
+        `, key, entry.fileName, entry.title.trim() || entry.fileName, displayArtist, displayArtist.toLocaleLowerCase());
+        const track = await txn.getFirstAsync<{ id: number }>('SELECT id FROM tracks WHERE song_key = ?', key);
         if (!track) throw new Error('Track was not stored');
         const periods: [string, string][] = [['year', yearlyKey(entry.day)], ['all', '*']];
         if (entry.day === today) periods.push(['day', today]);
