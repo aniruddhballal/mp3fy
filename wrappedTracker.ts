@@ -126,6 +126,16 @@ export class ListeningTracker {
     this.seekTarget = null;
   }
 
+  updateMetadata(track: ListeningTrack) {
+    if (this.previous?.track?.uri === track.uri) this.previous.track = track;
+    for (const entry of this.pending.values()) {
+      if (entry.uri === track.uri) {
+        entry.title = track.title;
+        entry.artist = track.artist;
+      }
+    }
+  }
+
   restart() {
     this.previous = null;
     this.heardInSessionMs = 0;

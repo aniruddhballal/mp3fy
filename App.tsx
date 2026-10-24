@@ -23,6 +23,7 @@ import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
 import { initializeWrappedStore, recordListening, updateTrackDetails } from './wrappedStore';
 import { ListeningTracker } from './wrappedTracker';
+import { WrappedScreen } from './WrappedScreen';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const PLAYBACK_KEY = 'mp3fy.playback.v1';
@@ -64,7 +65,8 @@ function isSavedPlayback(value: unknown): value is SavedPlayback {
 type Screen =
   | { kind: 'folders' }
   | { kind: 'songs'; folderUri: string }
-  | { kind: 'player'; returnTo: 'folders' | 'songs' };
+  | { kind: 'player'; returnTo: 'folders' | 'songs' }
+  | { kind: 'wrapped'; returnTo: 'folders' | 'songs' | 'player'; folderUri?: string; playerReturnTo?: 'folders' | 'songs' };
 
 function callOptionalPlayerMethod(player: object, methodName: string, ...args: unknown[]) {
   const method = (player as unknown as Record<string, unknown>)[methodName];
@@ -621,6 +623,12 @@ function Mp3fyApp() {
         setFolderToConfirm(null);
         return true;
       }
+      if (screen.kind === 'wrapped') {
+        if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
+        else if (screen.returnTo === 'songs' && screen.folderUri && folders.some((folder) => folder.uri === screen.folderUri)) setScreen({ kind: 'songs', folderUri: screen.folderUri });
+        else setScreen({ kind: 'folders' });
+        return true;
+      }
       if (screen.kind === 'player') {
         setScreen(screen.returnTo === 'songs' && currentTrack ? { kind: 'songs', folderUri: currentTrack.folderUri } : { kind: 'folders' });
         return true;
@@ -632,7 +640,7 @@ function Mp3fyApp() {
       return false;
     });
     return () => subscription.remove();
-  }, [currentTrack, folderActions, folderToConfirm, screen]);
+  }, [currentTrack, folderActions, folderToConfirm, folders, screen]);
 
   const loadArtwork = useCallback(async (track: Track) => {
     const request = ++artworkRequest.current;
@@ -640,7 +648,6 @@ function Mp3fyApp() {
     const applyArtwork = (mediaArtwork: string | null, metadata: TrackMetadata) => {
       if (request !== artworkRequest.current) return;
       setCurrentMetadata(metadata);
-      void updateTrackDetails(track.uri, metadata.title, metadata.artist).catch(() => undefined);
       setCurrentArtwork(mediaArtwork);
       setIsArtworkLoading(false);
       callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
@@ -650,6 +657,8 @@ function Mp3fyApp() {
     if (artworkCache.has(track.uri) && cachedMetadata) {
       rememberCacheValue(artworkCache, track.uri, artworkCache.get(track.uri) ?? null, MAX_MEMORY_ARTWORK_ENTRIES);
       rememberCacheValue(metadataCache, track.uri, cachedMetadata, MAX_MEMORY_METADATA_ENTRIES);
+      tracker.updateMetadata({ uri: track.uri, title: cachedMetadata.title, artist: cachedMetadata.artist });
+      void updateTrackDetails(track.uri, cachedMetadata.title, cachedMetadata.artist).catch(() => undefined);
       applyArtwork(artworkCache.get(track.uri) ?? null, cachedMetadata);
       return;
     }
@@ -657,8 +666,10 @@ function Mp3fyApp() {
     const mediaArtwork = details.artwork ? await materializeArtwork(details.artwork, track.uri) : null;
     rememberCacheValue(artworkCache, track.uri, mediaArtwork, MAX_MEMORY_ARTWORK_ENTRIES);
     rememberCacheValue(metadataCache, track.uri, details.metadata, MAX_MEMORY_METADATA_ENTRIES);
+    tracker.updateMetadata({ uri: track.uri, title: details.metadata.title, artist: details.metadata.artist });
+    void updateTrackDetails(track.uri, details.metadata.title, details.metadata.artist).catch(() => undefined);
     applyArtwork(mediaArtwork, details.metadata);
-  }, [artworkCache, metadataCache, player]);
+  }, [artworkCache, metadataCache, player, tracker]);
 
   useEffect(() => {
     let mounted = true;
@@ -1022,6 +1033,19 @@ function Mp3fyApp() {
     if (currentTrack) setScreen({ kind: 'player', returnTo: screen.kind === 'songs' ? 'songs' : 'folders' });
   }, [currentTrack, screen.kind]);
 
+  const openWrapped = useCallback(() => {
+    observePlayback();
+    void tracker.flush().catch(() => undefined);
+    setScreen({ kind: 'wrapped', returnTo: screen.kind === 'wrapped' ? 'folders' : screen.kind, folderUri: screen.kind === 'songs' ? screen.folderUri : undefined, playerReturnTo: screen.kind === 'player' ? screen.returnTo : undefined });
+  }, [observePlayback, screen, tracker]);
+
+  const closeWrapped = useCallback(() => {
+    if (screen.kind !== 'wrapped') return;
+    if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
+    else if (screen.returnTo === 'songs' && screen.folderUri && folders.some((folder) => folder.uri === screen.folderUri)) setScreen({ kind: 'songs', folderUri: screen.folderUri });
+    else setScreen({ kind: 'folders' });
+  }, [currentTrack, folders, screen]);
+
   if (!isInitialized) {
     return (
       <>
@@ -1044,11 +1068,13 @@ function Mp3fyApp() {
       <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
         <View style={styles.container}>
           {screen.kind === 'folders' ? (
-            <FoldersScreen folders={folderCounts} tracksCount={tracks.length} isScanning={isScanning} scanningFolderUris={scanningFolderUris} notice={notice} onAddFolder={addFolder} onAddSong={addSong} onOpenFolder={openFolder} onLongPressFolder={setFolderActions} />
+            <FoldersScreen folders={folderCounts} tracksCount={tracks.length} isScanning={isScanning} scanningFolderUris={scanningFolderUris} notice={notice} onAddFolder={addFolder} onAddSong={addSong} onOpenFolder={openFolder} onLongPressFolder={setFolderActions} onOpenWrapped={openWrapped} />
           ) : screen.kind === 'songs' && selectedFolder ? (
-            <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} />
+            <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} onOpenWrapped={openWrapped} />
+          ) : screen.kind === 'wrapped' ? (
+            <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} />
           ) : currentTrack ? (
-            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} />
+            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} onOpenWrapped={openWrapped} />
           ) : null}
 
           {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={togglePlayback} onNext={playNext} /> : null}
@@ -1096,23 +1122,23 @@ function FolderArtwork({ uri }: { uri?: string | null }) {
   return uri ? <Image source={{ uri }} style={styles.folderArtwork} /> : <View style={styles.folderArtworkPlaceholder}><Text style={styles.folderArtworkPlaceholderText}>DIR</Text></View>;
 }
 
-const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onAddSong, onOpenFolder, onLongPressFolder }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onAddSong: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void }) {
+const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onAddSong, onOpenFolder, onLongPressFolder, onOpenWrapped }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onAddSong: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void; onOpenWrapped: () => void }) {
   return (
     <View style={styles.screen}>
-      <ScreenHeader subtitle="" right={<Text style={styles.count}>{folders.length} FOLDERS</Text>} />
+      <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{folders.length} FOLDERS</Text><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><View style={styles.libraryActions}><ActionButton label="ADD SONG" onPress={onAddSong} secondary /><ActionButton label="ADD FOLDER" onPress={onAddFolder} secondary /></View></View>
       {isScanning && !folders.length ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><View style={styles.folderMetaRow}><Text style={styles.folderMeta}>{item.count}</Text>{scanningFolderUris.has(item.folder.uri) ? <ActivityIndicator color="#000000" size="small" /> : null}</View></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} initialNumToRender={8} maxToRenderPerBatch={8} removeClippedSubviews windowSize={5} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>1.4.19</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>1.5.0</Text></View>
     </View>
   );
 });
 
-const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; isScanning: boolean; onPlayTrack: (track: Track) => void }) {
+const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack, onOpenWrapped }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; isScanning: boolean; onPlayTrack: (track: Track) => void; onOpenWrapped: () => void }) {
   const [search, setSearch] = useState('');
   const visibleTracks = useMemo(() => tracks.filter((track) => track.name.toLowerCase().includes(search.trim().toLowerCase())), [search, tracks]);
   return (
     <View style={styles.screen}>
-      <ScreenHeader subtitle="" right={<Text style={styles.count}>{tracks.length} TRACKS</Text>} />
+      <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{tracks.length} TRACKS</Text><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
       <View style={styles.pageHeading}><Text numberOfLines={2} style={styles.screenTitle}>{folder.name}</Text></View>
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} initialNumToRender={16} maxToRenderPerBatch={12} removeClippedSubviews windowSize={7} renderItem={({ item }) => {
@@ -1149,10 +1175,10 @@ function IconButton({ icon, accessibilityLabel, onPress, active = false, transpo
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.iconButton, transport && styles.transportSideButton, active && styles.activeIconButton, pressed && styles.pressed]}><TransportGlyph kind={icon} active={active} /></Pressable>;
 }
 
-function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void }) {
+function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenWrapped }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenWrapped: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
-      <ScreenHeader subtitle="NOW PLAYING" right={<MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} />} />
+      <ScreenHeader subtitle="NOW PLAYING" right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
       <MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} />
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
@@ -1176,6 +1202,8 @@ const styles = StyleSheet.create({
   wordmark: { color: '#000000', fontSize: 30, fontWeight: '700', letterSpacing: -1 },
   label: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginTop: 4 },
   count: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginLeft: 10 },
+  headerActions: { alignItems: 'flex-end', gap: 7 },
+  wrappedLink: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, paddingVertical: 5, textDecorationLine: 'underline' },
   screenTitleRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingTop: 20 },
   pageHeading: { paddingTop: 20 },
   screenTitle: { color: '#000000', fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
@@ -1233,6 +1261,7 @@ const styles = StyleSheet.create({
   artLoadingText: { color: '#444444', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginTop: 10 },
   playerScreen: { flexGrow: 1, justifyContent: 'center', paddingBottom: 28, paddingTop: 18 },
   playerHeaderFolderViewport: { alignSelf: 'flex-start', flexShrink: 1, marginLeft: 12, marginTop: 8, maxWidth: 170, minWidth: 0, width: 170 },
+  playerHeaderActions: { alignItems: 'flex-end' },
   playerHeaderFolderText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
   playerArt: { alignItems: 'center', paddingTop: 18 },
   playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 16 },

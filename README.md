@@ -6,9 +6,17 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 ## Current status
 
-The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during startup and folder operations. It restores the last song, folder, and playback position after reopening, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected.
+The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during startup and folder operations. It restores the last song, folder, and playback position after reopening, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected. mp3fy Wrapped shows listening time and top artists and songs for a day, week, month, year, or all time.
 
-The current Android release is version `1.4.20` (`versionCode` `35`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk` and is approximately 12 MB.
+The current Android release is version `1.5.0` (`versionCode` `36`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
+
+## mp3fy Wrapped
+
+Wrapped records actual listening time while a track advances. A play counts once a listening session reaches 30 seconds, matching Spotify's published song-stream threshold. Paused time and jumps from seeking are excluded. Tracking starts with version 1.5.0; earlier listening cannot be recovered retroactively.
+
+Each selected file is identified by its URI, so two files with the same name in different folders remain separate. Artist and title come from ID3 tags when available, with filename-derived metadata as a fallback. Wrapped displays the top five artists by listening time, the top five songs by counted plays, period listening time, all-time listening time, the longest listening day, and the busiest month. You can browse recent days and weeks, plus all recorded months and calendar years.
+
+Stats are stored locally in SQLite as per-track totals rather than a growing log of every playback event. Daily per-track rankings are retained for about 10 weeks; monthly, yearly, and all-time per-track totals remain available. One total per day is retained for the longest-day record. The stored data grows linearly with the number of distinct tracks and months, and does not modify MP3 files.
 
 ## Planned workflow
 
