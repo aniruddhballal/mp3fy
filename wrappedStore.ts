@@ -121,6 +121,58 @@ function enqueueWrite(task: () => Promise<void>): Promise<void> {
   return write;
 }
 
+type BackupTrack = { songKey: string; fileName: string; title: string; artist: string; artistKey: string };
+type BackupPeriod = { grain: string; period: string; songKey: string; listenedMs: number; plays: number };
+type BackupTotal = { period: string; listenedMs: number };
+type WrappedBackup = {
+  format: 'mp3fy-wrapped';
+  version: 1;
+  createdAt: string;
+  tracks: BackupTrack[];
+  periods: BackupPeriod[];
+  days: BackupTotal[];
+  months: BackupTotal[];
+};
+
+function nonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+async function parseWrappedBackup(contents: string): Promise<WrappedBackup> {
+  const backup: unknown = JSON.parse(contents);
+  if (!backup || typeof backup !== 'object') throw new Error('Invalid Wrapped backup');
+  const data = backup as Partial<WrappedBackup>;
+  if (data.format !== 'mp3fy-wrapped' || data.version !== 1 || typeof data.createdAt !== 'string'
+    || !Array.isArray(data.tracks) || !Array.isArray(data.periods)
+    || !Array.isArray(data.days) || !Array.isArray(data.months)) throw new Error('Unsupported Wrapped backup');
+  const keys = new Set<string>();
+  for (const track of data.tracks) {
+    if (!track || typeof track.songKey !== 'string' || typeof track.fileName !== 'string'
+      || !track.fileName.trim() || typeof track.title !== 'string'
+      || typeof track.artist !== 'string' || typeof track.artistKey !== 'string'
+      || track.songKey !== await songKey(track.fileName) || keys.has(track.songKey)) throw new Error('Invalid Wrapped track');
+    keys.add(track.songKey);
+  }
+  const periodKeys = new Set<string>();
+  for (const row of data.periods) {
+    if (!row || !['day', 'week', 'month', 'year', 'all'].includes(row.grain)
+      || typeof row.period !== 'string' || typeof row.songKey !== 'string' || !keys.has(row.songKey)
+      || !nonnegativeInteger(row.listenedMs) || !nonnegativeInteger(row.plays)) throw new Error('Invalid Wrapped ranking');
+    const compound = `${row.grain}\0${row.period}\0${row.songKey}`;
+    if (periodKeys.has(compound)) throw new Error('Duplicate Wrapped ranking');
+    periodKeys.add(compound);
+  }
+  for (const [rows, pattern] of [[data.days, /^\d{4}-\d{2}-\d{2}$/], [data.months, /^\d{4}-\d{2}$/]] as const) {
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (!row || typeof row.period !== 'string' || !pattern.test(row.period)
+        || !nonnegativeInteger(row.listenedMs) || seen.has(row.period)) throw new Error('Invalid Wrapped totals');
+      seen.add(row.period);
+    }
+  }
+  return data as WrappedBackup;
+}
+
 async function openStore(): Promise<SQLiteDatabase> {
   if (!databasePromise) {
     databasePromise = (async () => {
@@ -302,4 +354,67 @@ export async function getAvailableYears(now = new Date()): Promise<string[]> {
   const db = await openStore();
   const rows = await db.getAllAsync<{ period: string }>("SELECT DISTINCT period FROM period_stats WHERE grain = 'year' ORDER BY period DESC");
   return Array.from(new Set([String(now.getFullYear()), ...rows.map((row) => row.period)])).sort().reverse();
+}
+
+export async function hasWrappedHistory(): Promise<boolean> {
+  await writeQueue;
+  const db = await openStore();
+  return Boolean(await db.getFirstAsync("SELECT 1 FROM period_stats LIMIT 1"));
+}
+
+export async function exportWrappedBackup(): Promise<string> {
+  let contents = '';
+  await enqueueWrite(async () => {
+    const db = await openStore();
+    await pruneExpiredRankings(db);
+    let backup: WrappedBackup | null = null;
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      backup = {
+        format: 'mp3fy-wrapped',
+        version: 1,
+        createdAt: new Date().toISOString(),
+        tracks: await txn.getAllAsync<BackupTrack>(`
+        SELECT song_key AS songKey, file_name AS fileName, title, artist, artist_key AS artistKey
+        FROM tracks ORDER BY song_key
+      `),
+        periods: await txn.getAllAsync<BackupPeriod>(`
+        SELECT p.grain, p.period, t.song_key AS songKey, p.listened_ms AS listenedMs, p.plays
+        FROM period_stats p JOIN tracks t ON t.id = p.track_id
+        ORDER BY p.grain, p.period, t.song_key
+      `),
+        days: await txn.getAllAsync<BackupTotal>('SELECT day AS period, listened_ms AS listenedMs FROM day_totals ORDER BY day'),
+        months: await txn.getAllAsync<BackupTotal>('SELECT month AS period, listened_ms AS listenedMs FROM month_totals ORDER BY month'),
+      };
+    });
+    contents = JSON.stringify(backup);
+  });
+  return contents;
+}
+
+export async function restoreWrappedBackup(contents: string): Promise<void> {
+  const backup = await parseWrappedBackup(contents);
+  await enqueueWrite(async () => {
+    const db = await openStore();
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync('DELETE FROM period_stats; DELETE FROM tracks; DELETE FROM day_totals; DELETE FROM month_totals;');
+      for (const track of backup.tracks) {
+        await txn.runAsync(`INSERT INTO tracks (song_key, file_name, title, artist, artist_key) VALUES (?, ?, ?, ?, ?)`,
+          track.songKey, track.fileName, track.title, track.artist, track.artistKey);
+      }
+      const savedTracks = await txn.getAllAsync<{ id: number; song_key: string }>('SELECT id, song_key FROM tracks');
+      const ids = new Map(savedTracks.map((track) => [track.song_key, track.id]));
+      for (const row of backup.periods) {
+        await txn.runAsync(`INSERT INTO period_stats (grain, period, track_id, listened_ms, plays) VALUES (?, ?, ?, ?, ?)`,
+          row.grain, row.period, ids.get(row.songKey) as number, row.listenedMs, row.plays);
+      }
+      for (const row of backup.days) {
+        await txn.runAsync('INSERT INTO day_totals (day, listened_ms) VALUES (?, ?)', row.period, row.listenedMs);
+      }
+      for (const row of backup.months) {
+        await txn.runAsync('INSERT INTO month_totals (month, listened_ms) VALUES (?, ?)', row.period, row.listenedMs);
+      }
+    });
+    prunedForDay = null;
+    await pruneExpiredRankings(db);
+  });
 }

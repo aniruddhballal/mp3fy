@@ -160,3 +160,32 @@ test('matching filenames in different folders accumulate under one hashed song I
   assert.equal((await store.getWrappedSummary('day', today)).songs[0].plays, 2);
   assert.equal((await store.getWrappedSummary('all', '*')).songs[0].listenedMs, 75_000);
 });
+
+test('Wrapped backup restores annual, current, all-time and milestone totals', async () => {
+  const original = loadStore(new TestDatabase());
+  const today = original.localDay(new Date());
+  const oldYear = String(Number(today.slice(0, 4)) - 1);
+  await original.recordListening([
+    { uri: 'a/one.mp3', fileName: 'one.mp3', title: 'One', artist: 'Artist', day: today, listenedMs: 45_000, plays: 1 },
+    { uri: 'b/two.mp3', fileName: 'two.mp3', title: 'Two', artist: 'Other', day: `${oldYear}-05-12`, listenedMs: 65_000, plays: 2 },
+  ]);
+  const backup = await original.exportWrappedBackup();
+  assert.equal(JSON.parse(backup).format, 'mp3fy-wrapped');
+  const restored = loadStore(new TestDatabase());
+  await restored.restoreWrappedBackup(backup);
+  assert.deepEqual(await restored.getWrappedSummary('all', '*'), await original.getWrappedSummary('all', '*'));
+  assert.deepEqual(await restored.getWrappedSummary('year', oldYear), await original.getWrappedSummary('year', oldYear));
+  assert.deepEqual(await restored.getWrappedSummary('day', today), await original.getWrappedSummary('day', today));
+  assert.deepEqual(await restored.getAvailableYears(), await original.getAvailableYears());
+  assert.equal(await restored.hasWrappedHistory(), true);
+});
+
+test('invalid Wrapped backup cannot replace existing history', async () => {
+  const store = loadStore(new TestDatabase());
+  const today = store.localDay(new Date());
+  await store.recordListening([{ uri: 'song.mp3', fileName: 'song.mp3', title: 'Song', artist: 'Artist', day: today, listenedMs: 30_000, plays: 1 }]);
+  const backup = JSON.parse(await store.exportWrappedBackup());
+  backup.tracks[0].songKey = 'wrong';
+  await assert.rejects(store.restoreWrappedBackup(JSON.stringify(backup)), /Invalid Wrapped track/);
+  assert.equal((await store.getWrappedSummary('all', '*')).listenedMs, 30_000);
+});
