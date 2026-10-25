@@ -22,7 +22,7 @@ Open **Queue** from the home screen, a folder's song list, or the full player wh
 
 **Clear Queue** asks for confirmation. Confirming leaves only the current song in the playlist and switches to repeat-one. Removing the last upcoming song has the same repeat-one result. If repeat-one is already active while other songs remain queued, the current song continues repeating until repeat-one is turned off.
 
-The current Android release is version `1.5.6` (`versionCode` `42`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
+The current Android release is version `1.5.7` (`versionCode` `43`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 
 ## mp3fy Wrapped
 
