@@ -14,7 +14,7 @@ Songs in a folder are listed alphabetically by title. Each row shows the title f
 
 ## Playing queue
 
-Open **Queue** from the full player to see the current song at the top and the upcoming songs in playback order. The current song has animated playing bars. Drag a queued song by its handle to change the order, or remove it with the X button. The current song stays in place and keeps playing while the rest of the native playlist is updated. When repeat-folder is on, songs that would play after the playlist wraps appear at the end of the queue. Manual queue changes are saved with playback state and restored after reopening.
+Open **Queue** from the home screen, a folder's song list, or the full player whenever a song is loaded. Closing Queue returns to the screen it was opened from. Queue shows the current song at the top and the upcoming songs in playback order. The current song has animated playing bars. Drag a queued song by its handle to change the order, or remove it with the X button. The current song stays in place and keeps playing while the rest of the native playlist is updated. When repeat-folder is on, songs that would play after the playlist wraps appear at the end of the queue. Manual queue changes are saved with playback state and restored after reopening.
 
 **Clear Queue** asks for confirmation. Confirming leaves only the current song in the playlist and switches to repeat-one. Removing the last upcoming song has the same repeat-one result. If repeat-one is already active while other songs remain queued, the current song continues repeating until repeat-one is turned off.
 
