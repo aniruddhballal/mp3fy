@@ -1341,9 +1341,9 @@ function PlaybackOrderButton({ mode, onPress }: { mode: PlaybackMode; onPress: (
 function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenQueue }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenQueue: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
-      <ScreenHeader right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /><View style={styles.playerHeaderButtons}><QueueButton onPress={onOpenQueue} /></View></View>} />
+      <ScreenHeader right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /></View>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
-      <MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} />
+      <View style={styles.playerTitleRow}><MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} /><QueueButton onPress={onOpenQueue} /></View>
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
       {metadata.album || metadata.trackNumber ? <View style={styles.metadataDetails}>
         {metadata.album ? <MarqueeText style={styles.metadataAlbumViewport} text={metadata.album} textStyle={styles.metadataItem} /> : null}
@@ -1425,9 +1425,10 @@ const styles = StyleSheet.create({
   playerHeaderButtons: { flexDirection: 'row', gap: 6 },
   playerHeaderFolderText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
   playerArt: { alignItems: 'center', paddingTop: 18 },
-  playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 16 },
+  playerTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 16 },
+  playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29 },
   playerArtist: { color: '#555555', fontSize: 14, marginTop: 4 },
-  playerTitleViewport: { marginTop: 0 },
+  playerTitleViewport: { flex: 1, minWidth: 0 },
   playerArtistViewport: { marginTop: 0 },
   metadataDetails: { flexDirection: 'row', gap: 14, marginTop: 4 },
   metadataAlbumViewport: { flex: 1, minWidth: 0 },
