@@ -6,11 +6,17 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 ## Current status
 
-The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during folder operations. It restores the last song, folder, and playback position after reopening, showing the folders home screen with the mini player at the bottom, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected. mp3fy Wrapped shows listening time and top artists and songs for a day, week, month, year, or all time.
+The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, an editable playing queue, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during folder operations. It restores the last song, folder, playback position, and queue after reopening, showing the folders home screen with the mini player at the bottom, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected. mp3fy Wrapped shows listening time and top artists and songs for a day, week, month, year, or all time.
 
 The folder list, folder artwork locations, and discovered track list are saved in app storage. On later launches, the saved library appears as soon as it is read; a scan then refreshes it for files added or removed since the last launch. Adding or removing a folder also updates the saved library. The first launch after upgrading from an older build still needs one full scan to create this snapshot.
 
 Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. Search matches titles, artists, and filenames. Sequential playback follows title order within the selected folder.
+
+## Playing queue
+
+Open **Queue** from the full player to see the current song at the top and the upcoming songs in playback order. The current song has animated playing bars. Drag a queued song by its handle to change the order, or remove it with the X button. The current song stays in place and keeps playing while the rest of the native playlist is updated. When repeat-folder is on, songs that would play after the playlist wraps appear at the end of the queue. Manual queue changes are saved with playback state and restored after reopening.
+
+**Clear Queue** asks for confirmation. Confirming leaves only the current song in the playlist and switches to repeat-one. Removing the last upcoming song has the same repeat-one result. If repeat-one is already active while other songs remain queued, the current song continues repeating until repeat-one is turned off.
 
 The current Android release is version `1.5.6` (`versionCode` `42`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 

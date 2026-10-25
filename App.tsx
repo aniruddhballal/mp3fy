@@ -26,6 +26,8 @@ import { initializeWrappedStore, recordListening, restoreWrappedBackup, updateTr
 import { initializeWrappedBackup, noteWrappedHistoryChanged, saveWrappedBackupNow } from './wrappedBackup';
 import { ListeningTracker } from './wrappedTracker';
 import { WrappedScreen } from './WrappedScreen';
+import { QueueScreen, type QueueRow } from './QueueScreen';
+import { moveUpcoming, upcomingFrom } from './queueOrder';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const LIBRARY_KEY = 'mp3fy.library.v1';
@@ -90,6 +92,7 @@ type Screen =
   | { kind: 'folders' }
   | { kind: 'songs'; folderUri: string }
   | { kind: 'player'; returnTo: 'folders' | 'songs' }
+  | { kind: 'queue'; playerReturnTo: 'folders' | 'songs' }
   | { kind: 'wrapped'; returnTo: 'folders' | 'songs' | 'player'; folderUri?: string; playerReturnTo?: 'folders' | 'songs' };
 
 function callOptionalPlayerMethod(player: object, methodName: string, ...args: unknown[]) {
@@ -594,6 +597,19 @@ function Mp3fyApp() {
     return tracks.filter((track) => track.folderUri === selectedFolder.uri);
   }, [selectedFolder, tracks]);
 
+  const upcomingTracks = useMemo(() => currentTrack
+    ? upcomingFrom(queue, queue.findIndex((track) => track.uri === currentTrack.uri))
+    : [], [currentTrack, queue]);
+  const queueCurrentRow = useMemo<QueueRow | null>(() => {
+    if (!currentTrack) return null;
+    const metadata = currentMetadata ?? metadataCache.get(currentTrack.uri) ?? fallbackMetadata(currentTrack);
+    return { uri: currentTrack.uri, title: metadata.title, artist: metadata.artist };
+  }, [currentMetadata, currentTrack, metadataCache]);
+  const upcomingRows = useMemo<QueueRow[]>(() => upcomingTracks.map((track) => {
+    const metadata = metadataCache.get(track.uri) ?? fallbackMetadata(track);
+    return { uri: track.uri, title: metadata.title, artist: metadata.artist };
+  }), [currentMetadata, metadataCache, upcomingTracks]);
+
   useEffect(() => {
     if (!isInitialized) return;
     const serialized = JSON.stringify({ folders, tracks } satisfies LibrarySnapshot);
@@ -671,6 +687,10 @@ function Mp3fyApp() {
         if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
         else if (screen.returnTo === 'songs' && screen.folderUri && folders.some((folder) => folder.uri === screen.folderUri)) setScreen({ kind: 'songs', folderUri: screen.folderUri });
         else setScreen({ kind: 'folders' });
+        return true;
+      }
+      if (screen.kind === 'queue') {
+        setScreen({ kind: 'player', returnTo: screen.playerReturnTo });
         return true;
       }
       if (screen.kind === 'player') {
@@ -895,7 +915,7 @@ function Mp3fyApp() {
     void loadArtwork(nextTrack);
   }, [folders, loadArtwork, mode, observePlayback, player, repeatMode, savePlayback, tracker]);
 
-  const replaceQueueWithoutInterrupt = useCallback((nextQueue: Track[], nextIndex: number) => {
+  const replaceQueueWithoutInterrupt = useCallback((nextQueue: Track[], nextIndex: number, nextMode = mode, nextRepeatMode = repeatMode) => {
     const activeNativeIndex = player.currentIndex;
     const activeQueueIndex = queue.findIndex((track) => track.uri === currentTrack?.uri);
     if (!currentTrack || activeNativeIndex < 0 || activeNativeIndex >= player.trackCount || activeQueueIndex < 0) return false;
@@ -908,11 +928,17 @@ function Mp3fyApp() {
     nextQueue.slice(0, nextIndex).forEach((track, index) => player.insert({ uri: track.uri }, index));
     const nextTrackIndex = nextIndex;
     nextQueue.slice(nextIndex + 1).forEach((track, index) => player.insert({ uri: track.uri }, nextTrackIndex + 1 + index));
-    player.loop = repeatMode === 'one' ? 'single' : 'all';
+    player.loop = nextRepeatMode === 'one' ? 'single' : 'all';
     setQueue(nextQueue);
     setQueueIndex(nextIndex);
+    const playback = latestPlayback.current;
+    if (playback) {
+      const updated = { ...playback, queueUris: nextQueue.map((track) => track.uri), currentTime: pendingRestorePosition.current ?? Math.max(0, Math.floor(player.currentTime)), mode: nextMode, repeatMode: nextRepeatMode };
+      latestPlayback.current = updated;
+      savePlayback(updated);
+    }
     return true;
-  }, [currentTrack, player, queue, repeatMode]);
+  }, [currentTrack, mode, player, queue, repeatMode, savePlayback]);
 
   useEffect(() => {
     if (!queue.length || status.currentIndex < 0 || status.currentIndex >= queue.length) return;
@@ -998,8 +1024,25 @@ function Mp3fyApp() {
     setMode(nextMode);
     if (!currentTrack) return;
     const nextPlayback = buildQueue(tracks, currentTrack, nextMode);
-    replaceQueueWithoutInterrupt(nextPlayback.queue, nextPlayback.index);
+    replaceQueueWithoutInterrupt(nextPlayback.queue, nextPlayback.index, nextMode);
   }, [currentTrack, replaceQueueWithoutInterrupt, tracks]);
+
+  const reorderUpcoming = useCallback((from: number, to: number) => {
+    if (!currentTrack || from < 0 || to < 0 || from >= upcomingTracks.length || to >= upcomingTracks.length) return;
+    replaceQueueWithoutInterrupt([currentTrack, ...moveUpcoming(upcomingTracks, from, to)], 0);
+  }, [currentTrack, replaceQueueWithoutInterrupt, upcomingTracks]);
+
+  const removeUpcoming = useCallback((uri: string) => {
+    if (!currentTrack || !upcomingTracks.some((track) => track.uri === uri)) return;
+    const nextUpcoming = upcomingTracks.filter((track) => track.uri !== uri);
+    const nextRepeatMode = nextUpcoming.length ? repeatMode : 'one';
+    if (replaceQueueWithoutInterrupt([currentTrack, ...nextUpcoming], 0, mode, nextRepeatMode) && !nextUpcoming.length) setRepeatMode('one');
+  }, [currentTrack, mode, repeatMode, replaceQueueWithoutInterrupt, upcomingTracks]);
+
+  const clearUpcoming = useCallback(() => {
+    if (!currentTrack || !upcomingTracks.length) return;
+    if (replaceQueueWithoutInterrupt([currentTrack], 0, mode, 'one')) setRepeatMode('one');
+  }, [currentTrack, mode, replaceQueueWithoutInterrupt, upcomingTracks.length]);
 
   const addFolder = useCallback(async () => {
     setNotice('Selecting a folder.');
@@ -1101,10 +1144,17 @@ function Mp3fyApp() {
     if (currentTrack) setScreen({ kind: 'player', returnTo: screen.kind === 'songs' ? 'songs' : 'folders' });
   }, [currentTrack, screen.kind]);
 
+  const openQueue = useCallback(() => {
+    if (screen.kind === 'player' && currentTrack) setScreen({ kind: 'queue', playerReturnTo: screen.returnTo });
+  }, [currentTrack, screen]);
+  const closeQueue = useCallback(() => {
+    if (screen.kind === 'queue') setScreen({ kind: 'player', returnTo: screen.playerReturnTo });
+  }, [screen]);
+
   const openWrapped = useCallback(() => {
     observePlayback();
     void tracker.flush().catch(() => undefined);
-    setScreen({ kind: 'wrapped', returnTo: screen.kind === 'wrapped' ? 'folders' : screen.kind, folderUri: screen.kind === 'songs' ? screen.folderUri : undefined, playerReturnTo: screen.kind === 'player' ? screen.returnTo : undefined });
+    setScreen({ kind: 'wrapped', returnTo: screen.kind === 'wrapped' ? 'folders' : screen.kind === 'queue' ? 'player' : screen.kind, folderUri: screen.kind === 'songs' ? screen.folderUri : undefined, playerReturnTo: screen.kind === 'player' ? screen.returnTo : screen.kind === 'queue' ? screen.playerReturnTo : undefined });
   }, [observePlayback, screen, tracker]);
 
   const prepareWrappedBackup = useCallback(async () => {
@@ -1157,11 +1207,13 @@ function Mp3fyApp() {
             <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} currentMetadata={currentMetadata} metadataCache={metadataCache} isScanning={isScanning} onPlayTrack={playTrack} onOpenWrapped={openWrapped} />
           ) : screen.kind === 'wrapped' ? (
             <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} onPrepareBackup={prepareWrappedBackup} onRestoreBackup={restoreWrappedHistory} />
+          ) : screen.kind === 'queue' && queueCurrentRow ? (
+            <QueueScreen current={queueCurrentRow} upcoming={upcomingRows} playing={status.playing} repeatOne={repeatMode === 'one'} onBack={closeQueue} onMove={reorderUpcoming} onRemove={removeUpcoming} onClear={clearUpcoming} />
           ) : currentTrack ? (
-            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} onOpenWrapped={openWrapped} />
+            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} onOpenWrapped={openWrapped} onOpenQueue={openQueue} />
           ) : null}
 
-          {screen.kind !== 'player' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={togglePlayback} onNext={playNext} /> : null}
+          {screen.kind !== 'player' && screen.kind !== 'queue' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={togglePlayback} onNext={playNext} /> : null}
         </View>
       </SafeAreaView>
 
@@ -1271,10 +1323,10 @@ function IconButton({ icon, accessibilityLabel, onPress, active = false, transpo
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.iconButton, transport && styles.transportSideButton, active && styles.activeIconButton, pressed && styles.pressed]}><TransportGlyph kind={icon} active={active} /></Pressable>;
 }
 
-function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenWrapped }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenWrapped: () => void }) {
+function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenWrapped, onOpenQueue }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenWrapped: () => void; onOpenQueue: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
-      <ScreenHeader subtitle="NOW PLAYING" right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /><WrappedButton onPress={onOpenWrapped} /></View>} />
+      <ScreenHeader subtitle="NOW PLAYING" right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /><View style={styles.playerHeaderButtons}><Pressable accessibilityRole="button" accessibilityLabel="Open queue" onPress={onOpenQueue} style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="playlist-music" size={23} color="#000000" /></Pressable><WrappedButton onPress={onOpenWrapped} /></View></View>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
       <MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} />
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
@@ -1358,6 +1410,7 @@ const styles = StyleSheet.create({
   playerScreen: { flexGrow: 1, justifyContent: 'center', paddingBottom: 28, paddingTop: 18 },
   playerHeaderFolderViewport: { alignSelf: 'flex-start', flexShrink: 1, marginLeft: 12, marginTop: 8, maxWidth: 170, minWidth: 0, width: 170 },
   playerHeaderActions: { alignItems: 'flex-end' },
+  playerHeaderButtons: { flexDirection: 'row', gap: 6 },
   playerHeaderFolderText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
   playerArt: { alignItems: 'center', paddingTop: 18 },
   playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29, marginTop: 16 },
