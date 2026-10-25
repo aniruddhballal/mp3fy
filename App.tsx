@@ -786,7 +786,6 @@ function Mp3fyApp() {
         setCurrentMetadata(fallbackMetadata(selectedTrack));
         setCurrentArtwork(null);
         setIsArtworkLoading(true);
-        setScreen({ kind: 'player', returnTo: saved.standalone ? 'folders' : 'songs' });
         pendingRestorePosition.current = saved.currentTime;
         void loadArtwork(selectedTrack);
         try {
