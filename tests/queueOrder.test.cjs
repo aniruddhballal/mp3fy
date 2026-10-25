@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { upcomingFrom, moveUpcoming } = require('../queueOrder.ts');
+const { upcomingFrom, moveUpcoming } = require('../src/features/playback/queueOrder.ts');
 
 test('queue view includes wrapped tracks after the current track in playback order', () => {
   assert.deepEqual(upcomingFrom(['A', 'B', 'C', 'D'], 1), ['C', 'D', 'A']);

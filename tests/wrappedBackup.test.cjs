@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const typescript = require('typescript');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'wrappedBackup.ts'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'features', 'wrapped', 'wrappedBackup.ts'), 'utf8');
 const javascript = typescript.transpileModule(source, { compilerOptions: { module: typescript.ModuleKind.CommonJS, target: typescript.ScriptTarget.ES2020 } }).outputText;
 
 function loadBackupHarness() {

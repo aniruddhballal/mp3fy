@@ -2,9 +2,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import { readAsStringAsync } from 'expo-file-system/legacy';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { chooseWrappedBackupFolder, initializeWrappedBackup, isWrappedBackupEnabled, saveWrappedBackupNow } from './wrappedBackup';
-import { getAvailableYears, getWrappedSummary, hasWrappedHistory, inspectWrappedBackup, localDay, weekStart, type WrappedPeriod, type WrappedRank, type WrappedSummary } from './wrappedStore';
-import { APP_VERSION } from './appVersion';
+import { chooseWrappedBackupFolder, initializeWrappedBackup, isWrappedBackupEnabled, saveWrappedBackupNow } from '../features/wrapped/wrappedBackup';
+import { getAvailableYears, getWrappedSummary, hasWrappedHistory, inspectWrappedBackup, localDay, weekStart, type WrappedPeriod, type WrappedRank, type WrappedSummary } from '../features/wrapped/wrappedStore';
+import { APP_VERSION } from '../config/appVersion';
 
 const TABS: { key: WrappedPeriod; label: string }[] = [
   { key: 'day', label: 'DAY' },

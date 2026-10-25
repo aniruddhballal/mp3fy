@@ -23,15 +23,15 @@ import {
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
-import { initializeWrappedStore, recordListening, restoreWrappedBackup, updateTrackDetails } from './wrappedStore';
-import { initializeWrappedBackup, noteWrappedHistoryChanged, saveWrappedBackupNow } from './wrappedBackup';
-import { ListeningTracker } from './wrappedTracker';
-import { WrappedScreen } from './WrappedScreen';
-import { QueueScreen, type QueueRow } from './QueueScreen';
-import { moveUpcoming, upcomingFrom } from './queueOrder';
-import { buildQueue, nextPlaybackMode, restorePlaybackMode, titleAndArtistFromFilename, type PlaybackMode } from './playbackOrder';
-import { APP_VERSION } from './appVersion';
-import { fetchLyrics, type LyricsResult } from './lyrics';
+import { initializeWrappedStore, recordListening, restoreWrappedBackup, updateTrackDetails } from './features/wrapped/wrappedStore';
+import { initializeWrappedBackup, noteWrappedHistoryChanged, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
+import { ListeningTracker } from './features/wrapped/wrappedTracker';
+import { WrappedScreen } from './screens/WrappedScreen';
+import { QueueScreen, type QueueRow } from './screens/QueueScreen';
+import { moveUpcoming, upcomingFrom } from './features/playback/queueOrder';
+import { buildQueue, nextPlaybackMode, restorePlaybackMode, titleAndArtistFromFilename, type PlaybackMode } from './features/playback/playbackOrder';
+import { APP_VERSION } from './config/appVersion';
+import { fetchLyrics, type LyricsResult } from './features/lyrics/lyrics';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const LIBRARY_KEY = 'mp3fy.library.v1';

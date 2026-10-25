@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { buildQueue, nextPlaybackMode, restorePlaybackMode } = require('../playbackOrder.ts');
+const { buildQueue, nextPlaybackMode, restorePlaybackMode } = require('../src/features/playback/playbackOrder.ts');
 
 const tracks = [
   { uri: 'a-z', folderUri: 'folder', name: 'Artist A - Zebra.mp3' },

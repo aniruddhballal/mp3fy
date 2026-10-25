@@ -1,7 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { APP_VERSION } from './appVersion';
+import { APP_VERSION } from '../config/appVersion';
 
 export type QueueRow = { uri: string; title: string; artist: string };
 

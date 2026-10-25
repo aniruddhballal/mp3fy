@@ -5,7 +5,7 @@ const {
   MP3FY_USER_AGENT,
   fetchLyrics,
   parseSyncedLyrics,
-} = require('../lyrics.ts');
+} = require('../src/features/lyrics/lyrics.ts');
 
 test('parses two- and three-digit fractional timestamps and ignores metadata tags', () => {
   assert.deepEqual(parseSyncedLyrics('[ar:Artist]\n[ti:Song]\n[00:01.23]First\n[01:02.345]Second'), [

@@ -5,7 +5,7 @@ const test = require('node:test');
 const typescript = require('typescript');
 
 // Run the pure playback counter without loading Expo's native SQLite module.
-const source = fs.readFileSync(path.join(__dirname, '..', 'wrappedTracker.ts'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'features', 'wrapped', 'wrappedTracker.ts'), 'utf8');
 const javascript = typescript.transpileModule(source, { compilerOptions: { module: typescript.ModuleKind.CommonJS, target: typescript.ScriptTarget.ES2020 } }).outputText;
 const exported = {};
 const localDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
