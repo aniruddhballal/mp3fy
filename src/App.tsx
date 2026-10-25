@@ -28,9 +28,8 @@ import { styles } from './styles/appStyles';
 import { PlayerScreen } from './components/player/PlayerScreen';
 import { useScreenNavigation } from './hooks/useScreenNavigation';
 import { FOLDERS_KEY, LIBRARY_KEY, useLibraryState } from './features/library/useLibraryState';
+import { PLAYBACK_KEY, SHUFFLE_HISTORY_KEY, usePlaybackPersistence } from './features/playback/usePlaybackPersistence';
 
-const PLAYBACK_KEY = 'mp3fy.playback.v1';
-const SHUFFLE_HISTORY_KEY = 'mp3fy.shuffleHistory.v1';
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
 const MAX_MEMORY_ARTWORK_ENTRIES = 32;
 const MAX_MEMORY_METADATA_ENTRIES = 128;
@@ -61,14 +60,8 @@ function Mp3fyApp() {
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
   const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision, libraryRefreshTimer } = useLibraryState({ isInitialized });
+  const { pendingRestorePosition, latestPlayback, lastSavedPlayback, restoreTimer, shuffleHistory, savePlayback, rememberShuffle } = usePlaybackPersistence({ player, status, isInitialized, currentTrack, folders, queue, mode, repeatMode });
   const lockScreenTrackUri = useRef<string | null>(null);
-  const pendingRestorePosition = useRef<number | null>(null);
-  const latestPlayback = useRef<SavedPlayback | null>(null);
-  const lastSavedPlayback = useRef<string | null>(null);
-  const storageWrite = useRef<Promise<void>>(Promise.resolve());
-  const shuffleHistory = useRef(new Map<string, string[]>());
-  const shuffleHistoryWrite = useRef<Promise<void>>(Promise.resolve());
-  const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { tracker, observePlayback } = useWrappedTracking({
     player,
     queue,
@@ -88,22 +81,6 @@ function Mp3fyApp() {
     onCloseFolderActions: () => setFolderActions(null),
     onCloseFolderConfirmation: () => setFolderToConfirm(null),
   });
-
-  const savePlayback = useCallback((playback: SavedPlayback | null) => {
-    const serialized = playback ? JSON.stringify(playback) : null;
-    if (serialized === lastSavedPlayback.current) return;
-    lastSavedPlayback.current = serialized;
-    storageWrite.current = storageWrite.current.catch(() => undefined).then(() => serialized
-      ? AsyncStorage.setItem(PLAYBACK_KEY, serialized)
-      : AsyncStorage.removeItem(PLAYBACK_KEY));
-  }, []);
-
-  const rememberShuffle = useCallback((folderUri: string, shuffledQueue: Track[]) => {
-    shuffleHistory.current.set(folderUri, shuffledQueue.map((track) => track.uri));
-    const serialized = JSON.stringify([...shuffleHistory.current.entries()]);
-    shuffleHistoryWrite.current = shuffleHistoryWrite.current.catch(() => undefined)
-      .then(() => AsyncStorage.setItem(SHUFFLE_HISTORY_KEY, serialized));
-  }, []);
 
   const queueTitleFor = useCallback((track: Track) => track.uri === currentTrack?.uri
     ? currentMetadata?.title ?? metadataCache.get(track.uri)?.title ?? fallbackMetadata(track).title
@@ -332,34 +309,6 @@ function Mp3fyApp() {
       if (libraryRefreshTimer.current) clearTimeout(libraryRefreshTimer.current);
     };
   }, [loadArtwork, player, rememberShuffle, rescan, savePlayback]);
-
-  useEffect(() => {
-    if (!isInitialized) return;
-    if (!currentTrack) {
-      latestPlayback.current = null;
-      savePlayback(null);
-      return;
-    }
-    if (player.currentIndex !== status.currentIndex) return;
-    if (queue.length && status.currentIndex >= 0 && status.currentIndex < queue.length
-      && queue[status.currentIndex].uri !== currentTrack.uri) return;
-    const pendingPosition = pendingRestorePosition.current;
-    if (pendingPosition !== null && Math.abs(status.currentTime - pendingPosition) <= 1.5) {
-      pendingRestorePosition.current = null;
-      if (restoreTimer.current) clearTimeout(restoreTimer.current);
-      restoreTimer.current = null;
-    }
-    const playback: SavedPlayback = {
-      track: currentTrack,
-      queueUris: queue.map((track) => track.uri),
-      currentTime: pendingRestorePosition.current ?? Math.max(0, Math.floor(status.currentTime)),
-      mode,
-      repeatMode,
-      standalone: !folders.some((folder) => folder.uri === currentTrack.folderUri),
-    };
-    latestPlayback.current = playback;
-    if (pendingRestorePosition.current === null) savePlayback(playback);
-  }, [currentTrack, folders, isInitialized, mode, player, queue, repeatMode, savePlayback, status.currentIndex, status.currentTime]);
 
   const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, nextRepeatMode: RepeatMode = repeatMode, nextMode: PlaybackMode = mode) => {
     const nextTrack = nextQueue[nextIndex];
