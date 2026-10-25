@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { initializeWrappedBackup, noteWrappedHistoryChanged } from './wrappedBackup';
 import { initializeWrappedStore, recordListening } from './wrappedStore';
 import { ListeningTracker } from './wrappedTracker';
@@ -17,12 +17,12 @@ type UseWrappedTrackingOptions = {
   player: PlaybackObservationSource;
   queue: Track[];
   currentTrack: Track | null;
-  currentMetadata: TrackMetadata | null;
+  currentMetadataRef: MutableRefObject<TrackMetadata | null>;
   metadataCache: ReadonlyMap<string, TrackMetadata>;
   onHistoryChanged: () => void;
 };
 
-export function useWrappedTracking({ player, queue, currentTrack, currentMetadata, metadataCache, onHistoryChanged }: UseWrappedTrackingOptions) {
+export function useWrappedTracking({ player, queue, currentTrack, currentMetadataRef, metadataCache, onHistoryChanged }: UseWrappedTrackingOptions) {
   const trackerRef = useRef<ListeningTracker | null>(null);
   if (!trackerRef.current) {
     trackerRef.current = new ListeningTracker(async (entries) => {
@@ -35,7 +35,7 @@ export function useWrappedTracking({ player, queue, currentTrack, currentMetadat
 
   const observePlayback = useCallback((currentTime = player.currentTime, playing = player.playing, buffering = player.isBuffering, duration = player.duration, index = player.currentIndex) => {
     const track = queue[index] ?? currentTrack;
-    const metadata = track?.uri === currentTrack?.uri ? currentMetadata : track ? metadataCache.get(track.uri) : null;
+    const metadata = track?.uri === currentTrack?.uri ? currentMetadataRef.current : track ? metadataCache.get(track.uri) : null;
     tracker.observe({
       track: track ? { uri: track.uri, fileName: track.name, title: metadata?.title || fallbackMetadata(track).title, artist: metadata?.artist || fallbackMetadata(track).artist } : null,
       positionSeconds: currentTime,
@@ -44,7 +44,7 @@ export function useWrappedTracking({ player, queue, currentTrack, currentMetadat
       buffering,
       atMs: Date.now(),
     });
-  }, [currentMetadata, currentTrack, metadataCache, player, queue, tracker]);
+  }, [currentMetadataRef, currentTrack, metadataCache, player, queue, tracker]);
 
   useEffect(() => {
     void initializeWrappedStore().catch(() => undefined);

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
-import { initializeWrappedStore, restoreWrappedBackup, updateTrackDetails } from './features/wrapped/wrappedStore';
+import { initializeWrappedStore, restoreWrappedBackup } from './features/wrapped/wrappedStore';
 import { noteWrappedHistoryChanged, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
 import { useWrappedTracking } from './features/wrapped/useWrappedTracking';
 import { WrappedScreen } from './screens/WrappedScreen';
@@ -22,7 +22,7 @@ import { buildQueue, restorePlaybackMode, type PlaybackMode } from './features/p
 import { APP_VERSION } from './config/appVersion';
 import type { Folder, RepeatMode, SavedPlayback, Track, TrackMetadata } from './types/domain';
 import { isFolder, isLibrarySnapshot, isSavedPlayback } from './services/libraryValidation';
-import { fallbackMetadata, loadEmbeddedTrackDetails, materializeArtwork, pruneArtworkCache, rememberCacheValue } from './services/trackMetadata';
+import { fallbackMetadata, pruneArtworkCache } from './services/trackMetadata';
 import { activateLockScreen, deactivateLockScreen, updateLockScreen } from './services/mediaControls';
 import { styles } from './styles/appStyles';
 import { PlayerScreen } from './components/player/PlayerScreen';
@@ -30,10 +30,9 @@ import { useScreenNavigation } from './hooks/useScreenNavigation';
 import { FOLDERS_KEY, LIBRARY_KEY, useLibraryState } from './features/library/useLibraryState';
 import { PLAYBACK_KEY, SHUFFLE_HISTORY_KEY, usePlaybackPersistence } from './features/playback/usePlaybackPersistence';
 import { usePlaybackController } from './features/playback/usePlaybackController';
+import { useTrackArtwork } from './features/playback/useTrackArtwork';
 
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
-const MAX_MEMORY_ARTWORK_ENTRIES = 32;
-const MAX_MEMORY_METADATA_ENTRIES = 128;
 
 export default function App() {
   return <SafeAreaProvider><Mp3fyApp /></SafeAreaProvider>;
@@ -44,11 +43,7 @@ function Mp3fyApp() {
   const status = useAudioPlaylistStatus(player);
   const artworkCache = useRef(new Map<string, string | null>()).current;
   const metadataCache = useRef(new Map<string, TrackMetadata>()).current;
-  const artworkRequest = useRef(0);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
-  const [currentMetadata, setCurrentMetadata] = useState<TrackMetadata | null>(null);
-  const [currentArtwork, setCurrentArtwork] = useState<string | null>(null);
-  const [isArtworkLoading, setIsArtworkLoading] = useState(false);
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [mode, setMode] = useState<PlaybackMode>('folder');
@@ -63,14 +58,17 @@ function Mp3fyApp() {
   const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision, libraryRefreshTimer } = useLibraryState({ isInitialized });
   const { pendingRestorePosition, latestPlayback, lastSavedPlayback, restoreTimer, shuffleHistory, savePlayback, rememberShuffle } = usePlaybackPersistence({ player, status, isInitialized, currentTrack, folders, queue, mode, repeatMode });
   const lockScreenTrackUri = useRef<string | null>(null);
+  const currentMetadataRef = useRef<TrackMetadata | null>(null);
   const { tracker, observePlayback } = useWrappedTracking({
     player,
     queue,
     currentTrack,
-    currentMetadata,
+    currentMetadataRef,
     metadataCache,
     onHistoryChanged: () => setWrappedRevision((revision) => revision + 1),
   });
+  const { currentMetadata, setCurrentMetadata, currentArtwork, setCurrentArtwork, isArtworkLoading, setIsArtworkLoading, loadArtwork } = useTrackArtwork({ player, tracker, artworkCache, metadataCache });
+  currentMetadataRef.current = currentMetadata;
 
   const { screen, setScreen, openFolder, openPlayerFromMini, openQueue, closeQueue, openWrapped, closeWrapped } = useScreenNavigation({
     currentTrack,
@@ -157,35 +155,6 @@ function Mp3fyApp() {
     }
   }, [artworkCache, currentMetadata, currentTrack?.uri, player]);
 
-
-  const loadArtwork = useCallback(async (track: Track) => {
-    const request = ++artworkRequest.current;
-    setIsArtworkLoading(true);
-    const applyArtwork = (mediaArtwork: string | null, metadata: TrackMetadata) => {
-      if (request !== artworkRequest.current) return;
-      setCurrentMetadata(metadata);
-      setCurrentArtwork(mediaArtwork);
-      setIsArtworkLoading(false);
-      updateLockScreen(player, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: mediaArtwork ?? undefined });
-    };
-
-    const cachedMetadata = metadataCache.get(track.uri);
-    if (artworkCache.has(track.uri) && cachedMetadata) {
-      rememberCacheValue(artworkCache, track.uri, artworkCache.get(track.uri) ?? null, MAX_MEMORY_ARTWORK_ENTRIES);
-      rememberCacheValue(metadataCache, track.uri, cachedMetadata, MAX_MEMORY_METADATA_ENTRIES);
-      tracker.updateMetadata({ uri: track.uri, fileName: track.name, title: cachedMetadata.title, artist: cachedMetadata.artist });
-      void updateTrackDetails(track.name, cachedMetadata.title, cachedMetadata.artist).catch(() => undefined);
-      applyArtwork(artworkCache.get(track.uri) ?? null, cachedMetadata);
-      return;
-    }
-    const details = await loadEmbeddedTrackDetails(track.uri, fallbackMetadata(track));
-    const mediaArtwork = details.artwork ? await materializeArtwork(details.artwork, track.uri) : null;
-    rememberCacheValue(artworkCache, track.uri, mediaArtwork, MAX_MEMORY_ARTWORK_ENTRIES);
-    rememberCacheValue(metadataCache, track.uri, details.metadata, MAX_MEMORY_METADATA_ENTRIES);
-    tracker.updateMetadata({ uri: track.uri, fileName: track.name, title: details.metadata.title, artist: details.metadata.artist });
-    void updateTrackDetails(track.name, details.metadata.title, details.metadata.artist).catch(() => undefined);
-    applyArtwork(mediaArtwork, details.metadata);
-  }, [artworkCache, metadataCache, player, tracker]);
 
   useEffect(() => {
     let mounted = true;
