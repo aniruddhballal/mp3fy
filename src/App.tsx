@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { requestNotificationPermissionsAsync, setAudioModeAsync, useAudioPlaylist, useAudioPlaylistStatus } from 'expo-audio';
-import { File } from 'expo-file-system';
+import { useAudioPlaylist, useAudioPlaylistStatus } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,11 +17,10 @@ import { QueueScreen, type QueueRow } from './screens/QueueScreen';
 import { FoldersScreen, MiniPlayer, SongsScreen } from './screens/LibraryScreens';
 import { FolderDialogs } from './components/FolderDialogs';
 import { upcomingFrom } from './features/playback/queueOrder';
-import { buildQueue, restorePlaybackMode, type PlaybackMode } from './features/playback/playbackOrder';
+import { type PlaybackMode } from './features/playback/playbackOrder';
 import { APP_VERSION } from './config/appVersion';
 import type { Folder, RepeatMode, SavedPlayback, Track, TrackMetadata } from './types/domain';
-import { isFolder, isLibrarySnapshot, isSavedPlayback } from './services/libraryValidation';
-import { fallbackMetadata, pruneArtworkCache } from './services/trackMetadata';
+import { fallbackMetadata } from './services/trackMetadata';
 import { activateLockScreen, deactivateLockScreen, updateLockScreen } from './services/mediaControls';
 import { styles } from './styles/appStyles';
 import { PlayerScreen } from './components/player/PlayerScreen';
@@ -31,6 +29,7 @@ import { FOLDERS_KEY, LIBRARY_KEY, useLibraryState } from './features/library/us
 import { PLAYBACK_KEY, SHUFFLE_HISTORY_KEY, usePlaybackPersistence } from './features/playback/usePlaybackPersistence';
 import { usePlaybackController } from './features/playback/usePlaybackController';
 import { useTrackArtwork } from './features/playback/useTrackArtwork';
+import { useAppStartup } from './features/app/useAppStartup';
 
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
 
@@ -156,129 +155,33 @@ function Mp3fyApp() {
   }, [artworkCache, currentMetadata, currentTrack?.uri, player]);
 
 
-  useEffect(() => {
-    let mounted = true;
-    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
-    requestNotificationPermissionsAsync().then(({ granted }) => setNotificationsGranted(granted)).catch(() => undefined);
-    pruneArtworkCache();
-    const restore = async () => {
-      let refreshFolders: Folder[] | null = null;
-      try {
-        const values = await AsyncStorage.multiGet([FOLDERS_KEY, PLAYBACK_KEY, LIBRARY_KEY, SHUFFLE_HISTORY_KEY]);
-        const storedFolders = values[0][1];
-        const storedPlayback = values[1][1];
-        const storedLibrary = values[2][1];
-        const storedShuffleHistory = values[3][1];
-        if (storedShuffleHistory) {
-          try {
-            const entries: unknown = JSON.parse(storedShuffleHistory);
-            if (Array.isArray(entries)) entries.forEach((entry) => {
-              if (Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1]) && entry[1].every((uri: unknown) => typeof uri === 'string')) shuffleHistory.current.set(entry[0], entry[1]);
-            });
-          } catch { /* A damaged shuffle history can be rebuilt. */ }
-        }
-        let libraryTracks: Track[] = [];
-        if (storedFolders) {
-          try {
-            const savedFolders: unknown = JSON.parse(storedFolders);
-            if (!Array.isArray(savedFolders) || !savedFolders.every(isFolder)) throw new Error('Invalid folders');
-            setFolders(savedFolders);
-            let snapshot: unknown = null;
-            try { snapshot = storedLibrary ? JSON.parse(storedLibrary) : null; } catch { /* Rebuild a damaged snapshot. */ }
-            if (isLibrarySnapshot(snapshot, savedFolders)) {
-              setFolders(snapshot.folders);
-              setTracks(snapshot.tracks);
-              setIsLibraryReady(true);
-              libraryTracks = snapshot.tracks;
-              refreshFolders = savedFolders;
-            } else {
-              libraryTracks = await rescan(savedFolders);
-            }
-          } catch {
-            setNotice('Saved folders could not be restored.');
-          }
-        }
-        if (!mounted || !storedPlayback) return;
-        lastSavedPlayback.current = storedPlayback;
-        let saved: unknown;
-        try {
-          saved = JSON.parse(storedPlayback);
-        } catch {
-          savePlayback(null);
-          return;
-        }
-        if (!isSavedPlayback(saved)) {
-          savePlayback(null);
-          return;
-        }
-        const restoredMode = restorePlaybackMode(saved.mode);
-        const knownTracks = new Map(libraryTracks.map((track) => [track.uri, track]));
-        if (saved.standalone && !knownTracks.has(saved.track.uri)) {
-          try {
-            if (new File(saved.track.uri).exists) knownTracks.set(saved.track.uri, saved.track);
-          } catch {
-            // The selected song may have moved or its access may have been revoked.
-          }
-        }
-        const selectedTrack = knownTracks.get(saved.track.uri);
-        if (!selectedTrack) {
-          savePlayback(null);
-          setNotice('The last song is no longer available. Select it again to continue.');
-          return;
-        }
-        const restoredQueue = saved.queueUris.map((uri) => knownTracks.get(uri)).filter((track): track is Track => Boolean(track));
-        const nextQueue = restoredQueue.some((track) => track.uri === selectedTrack.uri)
-          ? restoredQueue
-          : buildQueue(libraryTracks.length ? libraryTracks : [selectedTrack], selectedTrack, restoredMode, shuffleHistory.current.get(selectedTrack.folderUri)).queue;
-        if (restoredMode === 'shuffle') rememberShuffle(selectedTrack.folderUri, nextQueue);
-        const nextIndex = nextQueue.findIndex((track) => track.uri === selectedTrack.uri);
-        player.clear();
-        nextQueue.forEach((track) => player.add({ uri: track.uri }));
-        player.loop = saved.repeatMode === 'one' ? 'single' : 'all';
-        player.skipTo(nextIndex);
-        setQueue(nextQueue);
-        setQueueIndex(nextIndex);
-        setMode(restoredMode);
-        setRepeatMode(saved.repeatMode);
-        setCurrentTrack(selectedTrack);
-        setCurrentMetadata(fallbackMetadata(selectedTrack));
-        setCurrentArtwork(null);
-        setIsArtworkLoading(true);
-        pendingRestorePosition.current = saved.currentTime;
-        void loadArtwork(selectedTrack);
-        try {
-          await player.seekTo(saved.currentTime);
-        } catch {
-          pendingRestorePosition.current = null;
-        }
-        restoreTimer.current = setTimeout(() => {
-          if (pendingRestorePosition.current === null) return;
-          pendingRestorePosition.current = null;
-          const playback = latestPlayback.current;
-          if (playback) savePlayback({ ...playback, currentTime: Math.max(0, Math.floor(player.currentTime)) });
-        }, 5000);
-      } catch {
-        setNotice('Saved playback could not be restored.');
-      } finally {
-        if (mounted) {
-          setIsLibraryReady(true);
-          setIsInitialized(true);
-          if (refreshFolders) {
-            const foldersToRefresh = refreshFolders;
-            libraryRefreshTimer.current = setTimeout(() => {
-              if (mounted) void rescan(foldersToRefresh);
-            }, 500);
-          }
-        }
-      }
-    };
-    void restore();
-    return () => {
-      mounted = false;
-      if (restoreTimer.current) clearTimeout(restoreTimer.current);
-      if (libraryRefreshTimer.current) clearTimeout(libraryRefreshTimer.current);
-    };
-  }, [loadArtwork, player, rememberShuffle, rescan, savePlayback]);
+  useAppStartup({
+    player,
+    shuffleHistory,
+    pendingRestorePosition,
+    latestPlayback,
+    lastSavedPlayback,
+    restoreTimer,
+    libraryRefreshTimer,
+    rescan,
+    rememberShuffle,
+    savePlayback,
+    loadArtwork,
+    setFolders,
+    setTracks,
+    setQueue,
+    setQueueIndex,
+    setMode,
+    setRepeatMode,
+    setCurrentTrack,
+    setCurrentMetadata,
+    setCurrentArtwork,
+    setIsArtworkLoading,
+    setNotice,
+    setIsLibraryReady,
+    setIsInitialized,
+    setNotificationsGranted,
+  });
 
   const { playTrack, addSong, playNext, playPrevious, updateQueuePreference, reorderUpcoming, removeUpcoming, clearUpcoming, togglePlayback, seek, displayedStatus, progress } = usePlaybackController({
     player,
