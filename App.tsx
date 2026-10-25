@@ -28,6 +28,7 @@ import { ListeningTracker } from './wrappedTracker';
 import { WrappedScreen } from './WrappedScreen';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
+const LIBRARY_KEY = 'mp3fy.library.v1';
 const PLAYBACK_KEY = 'mp3fy.playback.v1';
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const MARQUEE_FADE_WIDTH = 28;
@@ -40,6 +41,7 @@ const MAX_MEMORY_METADATA_ENTRIES = 128;
 
 type Folder = { name: string; uri: string; imageUri?: string | null };
 type Track = { folderName: string; folderUri: string; name: string; uri: string };
+type LibrarySnapshot = { folders: Folder[]; tracks: Track[] };
 type TrackMetadata = { title: string; artist: string; album: string; trackNumber: string };
 type PlaybackMode = 'shuffle' | 'sequential';
 type RepeatMode = 'all' | 'one';
@@ -63,6 +65,26 @@ function isSavedPlayback(value: unknown): value is SavedPlayback {
     && (saved.mode === 'shuffle' || saved.mode === 'sequential')
     && (saved.repeatMode === 'all' || saved.repeatMode === 'one')
     && typeof saved.standalone === 'boolean');
+}
+
+function isFolder(value: unknown): value is Folder {
+  if (!value || typeof value !== 'object') return false;
+  const folder = value as Partial<Folder>;
+  return typeof folder.name === 'string' && typeof folder.uri === 'string'
+    && (folder.imageUri === undefined || folder.imageUri === null || typeof folder.imageUri === 'string');
+}
+
+function isLibrarySnapshot(value: unknown, selectedFolders: Folder[]): value is LibrarySnapshot {
+  if (!value || typeof value !== 'object') return false;
+  const snapshot = value as Partial<LibrarySnapshot>;
+  if (!Array.isArray(snapshot.folders) || !Array.isArray(snapshot.tracks)
+    || !snapshot.folders.every(isFolder) || snapshot.folders.length !== selectedFolders.length
+    || !snapshot.folders.every((folder, index) => folder.uri === selectedFolders[index].uri && folder.name === selectedFolders[index].name)) return false;
+  const selectedUris = new Set(selectedFolders.map((folder) => folder.uri));
+  return snapshot.tracks.every((track) => track && typeof track === 'object'
+    && typeof track.uri === 'string' && typeof track.name === 'string'
+    && typeof track.folderUri === 'string' && typeof track.folderName === 'string'
+    && selectedUris.has(track.folderUri));
 }
 type Screen =
   | { kind: 'folders' }
@@ -516,12 +538,16 @@ function Mp3fyApp() {
   const [folderActions, setFolderActions] = useState<Folder | null>(null);
   const [folderToConfirm, setFolderToConfirm] = useState<Folder | null>(null);
   const [scanningFolderUris, setScanningFolderUris] = useState<Set<string>>(new Set());
+  const [isLibraryReady, setIsLibraryReady] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
   const pendingRestorePosition = useRef<number | null>(null);
   const latestPlayback = useRef<SavedPlayback | null>(null);
   const lastSavedPlayback = useRef<string | null>(null);
   const storageWrite = useRef<Promise<void>>(Promise.resolve());
+  const libraryStorageWrite = useRef<Promise<void>>(Promise.resolve());
+  const libraryRevision = useRef(0);
+  const libraryRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listeningTracker = useRef<ListeningTracker | null>(null);
   if (!listeningTracker.current) {
@@ -563,14 +589,23 @@ function Mp3fyApp() {
     return tracks.filter((track) => track.folderUri === selectedFolder.uri);
   }, [selectedFolder, tracks]);
 
+  useEffect(() => {
+    if (!isInitialized) return;
+    const serialized = JSON.stringify({ folders, tracks } satisfies LibrarySnapshot);
+    libraryStorageWrite.current = libraryStorageWrite.current.catch(() => undefined)
+      .then(() => AsyncStorage.setItem(LIBRARY_KEY, serialized));
+  }, [folders, tracks, isInitialized]);
+
   const rescan = useCallback(async (nextFolders: Folder[]) => {
-    setFolders(nextFolders);
+    const revision = libraryRevision.current;
     setIsScanning(true);
     const scanResult = await scanFolders(nextFolders);
-    setFolders(scanResult.folders);
-    setTracks(scanResult.tracks);
+    if (revision === libraryRevision.current) {
+      setFolders(scanResult.folders);
+      setTracks(scanResult.tracks);
+      setNotice(scanResult.tracks.length ? `${scanResult.tracks.length} MP3 file${scanResult.tracks.length === 1 ? '' : 's'} found.` : 'No MP3 files found in the selected folders.');
+    }
     setIsScanning(false);
-    setNotice(scanResult.tracks.length ? `${scanResult.tracks.length} MP3 file${scanResult.tracks.length === 1 ? '' : 's'} found.` : 'No MP3 files found in the selected folders.');
     return scanResult.tracks;
   }, []);
 
@@ -680,16 +715,29 @@ function Mp3fyApp() {
     setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
     pruneArtworkCache();
     const restore = async () => {
+      let refreshFolders: Folder[] | null = null;
       try {
-        const values = await AsyncStorage.multiGet([FOLDERS_KEY, PLAYBACK_KEY]);
+        const values = await AsyncStorage.multiGet([FOLDERS_KEY, PLAYBACK_KEY, LIBRARY_KEY]);
         const storedFolders = values[0][1];
         const storedPlayback = values[1][1];
+        const storedLibrary = values[2][1];
         let libraryTracks: Track[] = [];
         if (storedFolders) {
           try {
             const savedFolders: unknown = JSON.parse(storedFolders);
-            if (!Array.isArray(savedFolders)) throw new Error('Invalid folders');
-            libraryTracks = await rescan(savedFolders as Folder[]);
+            if (!Array.isArray(savedFolders) || !savedFolders.every(isFolder)) throw new Error('Invalid folders');
+            setFolders(savedFolders);
+            let snapshot: unknown = null;
+            try { snapshot = storedLibrary ? JSON.parse(storedLibrary) : null; } catch { /* Rebuild a damaged snapshot. */ }
+            if (isLibrarySnapshot(snapshot, savedFolders)) {
+              setFolders(snapshot.folders);
+              setTracks(snapshot.tracks);
+              setIsLibraryReady(true);
+              libraryTracks = snapshot.tracks;
+              refreshFolders = savedFolders;
+            } else {
+              libraryTracks = await rescan(savedFolders);
+            }
           } catch {
             setNotice('Saved folders could not be restored.');
           }
@@ -755,13 +803,23 @@ function Mp3fyApp() {
       } catch {
         setNotice('Saved playback could not be restored.');
       } finally {
-        if (mounted) setIsInitialized(true);
+        if (mounted) {
+          setIsLibraryReady(true);
+          setIsInitialized(true);
+          if (refreshFolders) {
+            const foldersToRefresh = refreshFolders;
+            libraryRefreshTimer.current = setTimeout(() => {
+              if (mounted) void rescan(foldersToRefresh);
+            }, 500);
+          }
+        }
       }
     };
     void restore();
     return () => {
       mounted = false;
       if (restoreTimer.current) clearTimeout(restoreTimer.current);
+      if (libraryRefreshTimer.current) clearTimeout(libraryRefreshTimer.current);
     };
   }, [loadArtwork, player, rescan, savePlayback]);
 
@@ -951,6 +1009,7 @@ function Mp3fyApp() {
       }
       const nextFolders = [...folders, nextFolder];
       await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(nextFolders));
+      libraryRevision.current += 1;
       scanningUri = nextFolder.uri;
       setFolders((existing) => [...existing, nextFolder]);
       setScanningFolderUris((existing) => new Set(existing).add(nextFolder.uri));
@@ -976,6 +1035,7 @@ function Mp3fyApp() {
     try {
       const nextFolders = folders.filter((item) => item.uri !== folder.uri);
       await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(nextFolders));
+      libraryRevision.current += 1;
       setFolders(nextFolders);
       setTracks((existing) => existing.filter((track) => track.folderUri !== folder.uri));
       if (screen.kind === 'songs' && screen.folderUri === folder.uri) setScreen({ kind: 'folders' });
@@ -1066,7 +1126,7 @@ function Mp3fyApp() {
     else setScreen({ kind: 'folders' });
   }, [currentTrack, folders, screen]);
 
-  if (!isInitialized) {
+  if (!isLibraryReady) {
     return (
       <>
         <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
