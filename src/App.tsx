@@ -32,6 +32,9 @@ import { moveUpcoming, upcomingFrom } from './features/playback/queueOrder';
 import { buildQueue, nextPlaybackMode, restorePlaybackMode, titleAndArtistFromFilename, type PlaybackMode } from './features/playback/playbackOrder';
 import { APP_VERSION } from './config/appVersion';
 import { fetchLyrics, type LyricsResult } from './features/lyrics/lyrics';
+import type { Folder, LibrarySnapshot, RepeatMode, SavedPlayback, Screen, Track, TrackMetadata } from './types/domain';
+import { isFolder, isLibrarySnapshot, isSavedPlayback } from './services/libraryValidation';
+import { scanFolder, scanFolders } from './services/libraryScanner';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const LIBRARY_KEY = 'mp3fy.library.v1';
@@ -47,59 +50,6 @@ const MAX_ARTWORK_CACHE_BYTES = 24 * 1024 * 1024;
 const MAX_MEMORY_ARTWORK_ENTRIES = 32;
 const MAX_MEMORY_METADATA_ENTRIES = 128;
 
-type Folder = { name: string; uri: string; imageUri?: string | null };
-type Track = { folderName: string; folderUri: string; name: string; uri: string };
-type LibrarySnapshot = { folders: Folder[]; tracks: Track[] };
-type TrackMetadata = { title: string; artist: string; album: string; trackNumber: string };
-type RepeatMode = 'all' | 'one';
-type SavedPlayback = {
-  track: Track;
-  queueUris: string[];
-  currentTime: number;
-  mode: PlaybackMode | 'sequential';
-  repeatMode: RepeatMode;
-  standalone: boolean;
-};
-
-function isSavedPlayback(value: unknown): value is SavedPlayback {
-  if (!value || typeof value !== 'object') return false;
-  const saved = value as Partial<SavedPlayback>;
-  const track = saved.track;
-  return Boolean(track && typeof track.uri === 'string' && typeof track.name === 'string'
-    && typeof track.folderUri === 'string' && typeof track.folderName === 'string'
-    && Array.isArray(saved.queueUris) && saved.queueUris.every((uri) => typeof uri === 'string')
-    && typeof saved.currentTime === 'number' && Number.isFinite(saved.currentTime) && saved.currentTime >= 0
-    && (saved.mode === 'folder' || saved.mode === 'title' || saved.mode === 'shuffle' || saved.mode === 'sequential')
-    && (saved.repeatMode === 'all' || saved.repeatMode === 'one')
-    && typeof saved.standalone === 'boolean');
-}
-
-function isFolder(value: unknown): value is Folder {
-  if (!value || typeof value !== 'object') return false;
-  const folder = value as Partial<Folder>;
-  return typeof folder.name === 'string' && typeof folder.uri === 'string'
-    && (folder.imageUri === undefined || folder.imageUri === null || typeof folder.imageUri === 'string');
-}
-
-function isLibrarySnapshot(value: unknown, selectedFolders: Folder[]): value is LibrarySnapshot {
-  if (!value || typeof value !== 'object') return false;
-  const snapshot = value as Partial<LibrarySnapshot>;
-  if (!Array.isArray(snapshot.folders) || !Array.isArray(snapshot.tracks)
-    || !snapshot.folders.every(isFolder) || snapshot.folders.length !== selectedFolders.length
-    || !snapshot.folders.every((folder, index) => folder.uri === selectedFolders[index].uri && folder.name === selectedFolders[index].name)) return false;
-  const selectedUris = new Set(selectedFolders.map((folder) => folder.uri));
-  return snapshot.tracks.every((track) => track && typeof track === 'object'
-    && typeof track.uri === 'string' && typeof track.name === 'string'
-    && typeof track.folderUri === 'string' && typeof track.folderName === 'string'
-    && selectedUris.has(track.folderUri));
-}
-type Screen =
-  | { kind: 'folders' }
-  | { kind: 'songs'; folderUri: string }
-  | { kind: 'player'; returnTo: 'folders' | 'songs' }
-  | { kind: 'queue'; returnTo: 'folders' | 'songs' | 'player'; folderUri?: string; playerReturnTo?: 'folders' | 'songs' }
-  | { kind: 'wrapped'; returnTo: 'folders' | 'songs' | 'player'; folderUri?: string; playerReturnTo?: 'folders' | 'songs' };
-
 function callOptionalPlayerMethod(player: object, methodName: string, ...args: unknown[]) {
   const method = (player as unknown as Record<string, unknown>)[methodName];
   if (typeof method !== 'function') return;
@@ -110,75 +60,6 @@ function callOptionalPlayerMethod(player: object, methodName: string, ...args: u
   }
 }
 
-function collectTracks(rootDirectory: Directory, folder: Folder, tracks: Track[], rootItems?: (Directory | File)[]) {
-  const pendingDirectories = [rootDirectory];
-  while (pendingDirectories.length) {
-    const directory = pendingDirectories.pop() as Directory;
-    const items = directory === rootDirectory && rootItems ? rootItems : directory.list();
-    for (const item of items) {
-      if (item instanceof Directory) {
-        pendingDirectories.push(item);
-      } else if (item instanceof File && item.name.toLowerCase().endsWith('.mp3')) {
-        tracks.push({ folderName: folder.name, folderUri: folder.uri, name: item.name, uri: item.uri });
-      }
-    }
-  }
-}
-
-const FOLDER_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
-
-function isFolderImage(file: File) {
-  const name = file.name.toLowerCase();
-  return FOLDER_IMAGE_EXTENSIONS.some((extension) => name.endsWith(extension));
-}
-
-function folderImagePriority(file: File) {
-  const name = file.name.toLowerCase();
-  if (name.startsWith('folder.')) return 0;
-  if (name.startsWith('cover.')) return 1;
-  if (name.startsWith('artwork.')) return 2;
-  if (name.startsWith('albumart.') || name.startsWith('album-art.')) return 3;
-  if (name.startsWith('thumbnail.')) return 4;
-  if (name.startsWith('image.')) return 5;
-  return 10;
-}
-
-async function scanFolder(folder: Folder): Promise<{ folder: Folder; tracks: Track[] }> {
-  try {
-    const directory = new Directory(folder.uri);
-    const items = directory.list();
-    const image = items
-      .filter((item): item is File => item instanceof File && isFolderImage(item))
-      .sort((a, b) => folderImagePriority(a) - folderImagePriority(b) || a.name.localeCompare(b.name))[0];
-    const tracks: Track[] = [];
-    collectTracks(directory, folder, tracks, items);
-    return { folder: { ...folder, imageUri: image?.uri ?? null }, tracks };
-  } catch {
-    return { folder: { ...folder, imageUri: null }, tracks: [] };
-  }
-}
-
-async function scanFolders(folders: Folder[]): Promise<{ folders: Folder[]; tracks: Track[] }> {
-  const results: { folder: Folder; tracks: Track[] }[] = [];
-  const tracks: Track[] = [];
-  const seen = new Set<string>();
-  for (const folder of folders) {
-    try {
-      const result = await scanFolder(folder);
-      results.push(result);
-      result.tracks.forEach((track) => {
-        if (!seen.has(track.uri)) {
-          seen.add(track.uri);
-          tracks.push(track);
-        }
-      });
-    } catch {
-      results.push({ folder: { ...folder, imageUri: null }, tracks: [] });
-    }
-  }
-  tracks.sort((a, b) => `${a.folderName}/${a.name}`.localeCompare(`${b.folderName}/${b.name}`));
-  return { folders: results.map((result) => result.folder), tracks };
-}
 
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '00:00';
