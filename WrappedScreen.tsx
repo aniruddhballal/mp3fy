@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { chooseWrappedBackupFolder, initializeWrappedBackup, isWrappedBackupEnabled, saveWrappedBackupNow } from './wrappedBackup';
 import { getAvailableYears, getWrappedSummary, hasWrappedHistory, inspectWrappedBackup, localDay, weekStart, type WrappedPeriod, type WrappedRank, type WrappedSummary } from './wrappedStore';
+import { APP_VERSION } from './appVersion';
 
 const TABS: { key: WrappedPeriod; label: string }[] = [
   { key: 'day', label: 'DAY' },
@@ -189,7 +190,7 @@ export function WrappedScreen({ revision, onBack, onPrepareBackup, onRestoreBack
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
-        <View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.brandSubline}>WRAPPED</Text></View>
+        <View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.brandSubline}>{APP_VERSION}</Text></View>
         <Pressable accessibilityRole="button" accessibilityLabel="Back to music" onPress={onBack} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}><Text style={styles.backText}>BACK</Text></Pressable>
       </View>
 

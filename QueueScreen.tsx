@@ -1,6 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { APP_VERSION } from './appVersion';
 
 export type QueueRow = { uri: string; title: string; artist: string };
 
@@ -113,7 +114,7 @@ export const QueueScreen = memo(function QueueScreen({ current, upcoming, playin
   useEffect(() => { if (dragRef.current) cancelDrag(); }, [cancelDrag, current.uri]);
 
   return <View style={styles.screen}>
-    <View style={styles.header}><View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.headerSubtitle}>QUEUE</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close queue" onPress={onBack} style={styles.headerButton}><MaterialCommunityIcons name="close" size={23} color="#000000" /></Pressable></View>
+    <View style={styles.header}><View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.headerSubtitle}>{APP_VERSION}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close queue" onPress={onBack} style={styles.headerButton}><MaterialCommunityIcons name="close" size={23} color="#000000" /></Pressable></View>
     <View style={styles.currentCard}><PlayingBars playing={playing} /><View style={styles.currentCopy}><Text style={styles.eyebrow}>CURRENT SONG</Text><Text numberOfLines={1} style={styles.currentTitle}>{current.title}</Text>{current.artist ? <Text numberOfLines={1} style={styles.artist}>{current.artist}</Text> : null}</View></View>
     <View style={styles.sectionHeader}><View><Text style={styles.sectionTitle}>UP NEXT</Text><Text style={styles.sectionCount}>{upcoming.length} {upcoming.length === 1 ? 'song' : 'songs'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Clear queue" accessibilityState={{ disabled: upcoming.length === 0 }} disabled={upcoming.length === 0} onPress={() => setConfirmClear(true)}><Text style={[styles.clearText, upcoming.length === 0 && styles.disabledText]}>CLEAR QUEUE</Text></Pressable></View>
     <View ref={listContainerRef} onLayout={(event) => { viewportHeight.current = event.nativeEvent.layout.height; }} style={styles.list}><ScrollView ref={scrollRef} scrollEnabled={!drag} scrollEventThrottle={16} onScroll={(event) => { scrollOffset.current = event.nativeEvent.contentOffset.y; }} onContentSizeChange={(_, height) => { contentHeight.current = height; }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
