@@ -1190,12 +1190,12 @@ function Mp3fyApp() {
   );
 }
 
-function ScreenHeader({ subtitle, right }: { subtitle: string; right?: React.ReactNode }) {
+function ScreenHeader({ subtitle, right, compactSubtitle = false }: { subtitle: string; right?: React.ReactNode; compactSubtitle?: boolean }) {
   return (
     <View style={styles.header}>
       <View style={styles.headerMain}>
         <Text style={styles.wordmark}>mp3fy</Text>
-        <Text style={styles.label}>{subtitle}</Text>
+        <Text numberOfLines={1} style={[styles.label, compactSubtitle && styles.compactSubtitle]}>{subtitle}</Text>
       </View>
       {right ?? null}
     </View>
@@ -1203,7 +1203,7 @@ function ScreenHeader({ subtitle, right }: { subtitle: string; right?: React.Rea
 }
 
 function WrappedButton({ onPress }: { onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel="Open Wrapped" onPress={onPress} style={({ pressed }) => [styles.wrappedButton, pressed && styles.pressed]}><MaterialCommunityIcons name="timer-sand" size={21} color="#000000" /></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel="Open Wrapped" onPress={onPress} style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="timer-sand" size={21} color="#000000" /></Pressable>;
 }
 
 function FolderArtwork({ uri }: { uri?: string | null }) {
@@ -1213,8 +1213,7 @@ function FolderArtwork({ uri }: { uri?: string | null }) {
 const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onAddSong, onOpenFolder, onLongPressFolder, onOpenWrapped }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onAddSong: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void; onOpenWrapped: () => void }) {
   return (
     <View style={styles.screen}>
-      <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{folders.length} FOLDERS</Text><WrappedButton onPress={onOpenWrapped} /></View>} />
-      <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><View style={styles.libraryActions}><Pressable accessibilityRole="button" accessibilityLabel="Add song" accessibilityHint="Choose an MP3 file" onPress={onAddSong} style={({ pressed }) => [styles.libraryIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="music-note-plus" size={27} color="#000000" /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Add folder" accessibilityHint="Choose a folder of MP3 files" onPress={onAddFolder} style={({ pressed }) => [styles.libraryIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="folder-plus-outline" size={27} color="#000000" /></Pressable></View></View>
+      <ScreenHeader compactSubtitle subtitle={`${folders.length} folders \u2022 ${tracksCount} tracks`} right={<View style={styles.homeHeaderActions}><Pressable accessibilityRole="button" accessibilityLabel="Add song" accessibilityHint="Choose an MP3 file" onPress={onAddSong} style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="music-note-plus" size={22} color="#000000" /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Add folder" accessibilityHint="Choose a folder of MP3 files" onPress={onAddFolder} style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="folder-plus-outline" size={22} color="#000000" /></Pressable><WrappedButton onPress={onOpenWrapped} /></View>} />
       {isScanning && !folders.length ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><View style={styles.folderMetaRow}><Text style={styles.folderMeta}>{item.count}</Text>{scanningFolderUris.has(item.folder.uri) ? <ActivityIndicator color="#000000" size="small" /> : null}</View></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} initialNumToRender={8} maxToRenderPerBatch={8} removeClippedSubviews windowSize={5} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
       <View style={styles.footer}><Text style={styles.footerText}>1.5.6</Text></View>
     </View>
@@ -1298,16 +1297,14 @@ const styles = StyleSheet.create({
   headerMain: { flex: 1 },
   wordmark: { color: '#000000', fontSize: 30, fontWeight: '700', letterSpacing: -1 },
   label: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginTop: 4 },
+  compactSubtitle: { color: '#555555', fontSize: 11, letterSpacing: 0.2 },
   count: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginLeft: 10 },
   headerActions: { alignItems: 'flex-end', gap: 7 },
-  wrappedButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 34, justifyContent: 'center', width: 34 },
-  screenTitleRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingTop: 20 },
+  homeHeaderActions: { flexDirection: 'row', gap: 6, marginLeft: 8 },
+  headerIconButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
   pageHeading: { paddingTop: 20 },
   screenTitle: { color: '#000000', fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },
-  screenSubtitle: { color: '#555555', fontSize: 12, marginTop: 5 },
   helperText: { color: '#555555', fontSize: 12, lineHeight: 18, marginTop: 14 },
-  libraryActions: { flexDirection: 'row', gap: 8, marginLeft: 12 },
-  libraryIconButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 48, justifyContent: 'center', width: 48 },
   button: { alignItems: 'center', backgroundColor: '#000000', height: 48, justifyContent: 'center', minWidth: 112, paddingHorizontal: 14 },
   secondaryButton: { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 1 },
   buttonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.8 },
