@@ -10,9 +10,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
-import { initializeWrappedStore, recordListening, restoreWrappedBackup, updateTrackDetails } from './features/wrapped/wrappedStore';
-import { initializeWrappedBackup, noteWrappedHistoryChanged, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
-import { ListeningTracker } from './features/wrapped/wrappedTracker';
+import { initializeWrappedStore, restoreWrappedBackup, updateTrackDetails } from './features/wrapped/wrappedStore';
+import { noteWrappedHistoryChanged, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
+import { useWrappedTracking } from './features/wrapped/useWrappedTracking';
 import { WrappedScreen } from './screens/WrappedScreen';
 import { QueueScreen, type QueueRow } from './screens/QueueScreen';
 import { FoldersScreen, MiniPlayer, SongsScreen } from './screens/LibraryScreens';
@@ -78,28 +78,14 @@ function Mp3fyApp() {
   const libraryRevision = useRef(0);
   const libraryRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listeningTracker = useRef<ListeningTracker | null>(null);
-  if (!listeningTracker.current) {
-    listeningTracker.current = new ListeningTracker(async (entries) => {
-      await recordListening(entries);
-      noteWrappedHistoryChanged();
-      setWrappedRevision((revision) => revision + 1);
-    });
-  }
-  const tracker = listeningTracker.current;
-
-  const observePlayback = useCallback((currentTime = player.currentTime, playing = player.playing, buffering = player.isBuffering, duration = player.duration, index = player.currentIndex) => {
-    const track = queue[index] ?? currentTrack;
-    const metadata = track?.uri === currentTrack?.uri ? currentMetadata : track ? metadataCache.get(track.uri) : null;
-    tracker.observe({
-      track: track ? { uri: track.uri, fileName: track.name, title: metadata?.title || fallbackMetadata(track).title, artist: metadata?.artist || fallbackMetadata(track).artist } : null,
-      positionSeconds: currentTime,
-      durationSeconds: duration,
-      playing,
-      buffering,
-      atMs: Date.now(),
-    });
-  }, [currentMetadata, currentTrack, metadataCache, player, queue, tracker]);
+  const { tracker, observePlayback } = useWrappedTracking({
+    player,
+    queue,
+    currentTrack,
+    currentMetadata,
+    metadataCache,
+    onHistoryChanged: () => setWrappedRevision((revision) => revision + 1),
+  });
 
   const { screen, setScreen, openFolder, openPlayerFromMini, openQueue, closeQueue, openWrapped, closeWrapped } = useScreenNavigation({
     currentTrack,
@@ -186,16 +172,6 @@ function Mp3fyApp() {
     return scanResult.tracks;
   }, []);
 
-
-  useEffect(() => {
-    void initializeWrappedStore().catch(() => undefined);
-    void initializeWrappedBackup().catch(() => undefined);
-    const timer = setInterval(() => { void tracker.flush().catch(() => undefined); }, 5000);
-    return () => {
-      clearInterval(timer);
-      void tracker.flush().catch(() => undefined);
-    };
-  }, [tracker]);
 
   useEffect(() => {
     if (player.currentIndex !== status.currentIndex) return;
