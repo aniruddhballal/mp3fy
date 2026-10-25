@@ -27,6 +27,7 @@ import type { Folder, LibrarySnapshot, RepeatMode, SavedPlayback, Screen, Track,
 import { isFolder, isLibrarySnapshot, isSavedPlayback } from './services/libraryValidation';
 import { scanFolder, scanFolders } from './services/libraryScanner';
 import { fallbackMetadata, loadEmbeddedTrackDetails, materializeArtwork, pruneArtworkCache, rememberCacheValue } from './services/trackMetadata';
+import { activateLockScreen, deactivateLockScreen, updateLockScreen } from './services/mediaControls';
 import { styles } from './styles/appStyles';
 import { PlayerScreen } from './components/player/PlayerScreen';
 
@@ -38,17 +39,6 @@ const MARQUEE_FADE_WIDTH = 28;
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
 const MAX_MEMORY_ARTWORK_ENTRIES = 32;
 const MAX_MEMORY_METADATA_ENTRIES = 128;
-
-function callOptionalPlayerMethod(player: object, methodName: string, ...args: unknown[]) {
-  const method = (player as unknown as Record<string, unknown>)[methodName];
-  if (typeof method !== 'function') return;
-  try {
-    method.apply(player, args);
-  } catch {
-    // Lock-screen controls are an enhancement; they must never interrupt playback.
-  }
-}
-
 
 export default function App() {
   return <SafeAreaProvider><Mp3fyApp /></SafeAreaProvider>;
@@ -217,7 +207,7 @@ function Mp3fyApp() {
       if (currentTrack && nextState !== 'unknown' && lockScreenTrackUri.current === null) {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
         lockScreenTrackUri.current = currentTrack.uri;
-        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: false, showSeekForward: false });
+        activateLockScreen(player, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
       }
     });
     return () => subscription.remove();
@@ -228,10 +218,10 @@ function Mp3fyApp() {
     const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
     if (lockScreenTrackUri.current === null) {
       lockScreenTrackUri.current = currentTrack.uri;
-      callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: false, showSeekForward: false });
+      activateLockScreen(player, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
     } else if (lockScreenTrackUri.current !== currentTrack.uri) {
       lockScreenTrackUri.current = currentTrack.uri;
-      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
+      updateLockScreen(player, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
     }
   }, [artworkCache, currentMetadata, currentTrack?.uri, player]);
 
@@ -275,7 +265,7 @@ function Mp3fyApp() {
       setCurrentMetadata(metadata);
       setCurrentArtwork(mediaArtwork);
       setIsArtworkLoading(false);
-      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: mediaArtwork ?? undefined });
+      updateLockScreen(player, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: mediaArtwork ?? undefined });
     };
 
     const cachedMetadata = metadataCache.get(track.uri);
@@ -478,7 +468,7 @@ function Mp3fyApp() {
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
     lockScreenTrackUri.current = nextTrack.uri;
-    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined }, { showSeekBackward: false, showSeekForward: false });
+    activateLockScreen(player, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
     player.play();
     restoreTimer.current = setTimeout(() => {
       if (pendingRestorePosition.current === null) return;
@@ -525,7 +515,7 @@ function Mp3fyApp() {
     setIsArtworkLoading(true);
     const nextMetadata = fallbackMetadata(nextTrack);
     setCurrentMetadata(nextMetadata);
-    callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
+    updateLockScreen(player, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
     void loadArtwork(nextTrack);
   }, [currentTrack?.uri, loadArtwork, player, queue, status.currentIndex]);
 
@@ -677,7 +667,7 @@ function Mp3fyApp() {
         player.pause();
         player.clear();
         lockScreenTrackUri.current = null;
-        callOptionalPlayerMethod(player, 'setActiveForLockScreen', false);
+        deactivateLockScreen(player);
         setCurrentTrack(null);
         setCurrentArtwork(null);
         setQueue([]);
