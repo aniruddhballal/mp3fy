@@ -12,6 +12,10 @@ The folder list, folder artwork locations, and discovered track list are saved i
 
 Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. Search matches titles, artists, and filenames. The chosen playback order is independent of the song list's display order.
 
+## Source layout
+
+Application code lives under `src/`; the repository root contains project configuration, documentation, assets, tests, and the checked-in APK. Feature logic is grouped under `src/features`, reusable services under `src/services`, screens under `src/screens`, shared UI under `src/components`, and shared domain types under `src/types`.
+
 ## Playback order
 
 Starting a song from a folder selects **A-Z**, which follows MP3 filename order within that folder. For filenames such as `Artist - Song.mp3`, this groups songs by artist and sorts the artists alphabetically. Tap the order control to cycle through **A-Z → a-z → shuffle → A-Z**. **a-z** sorts by the displayed song title, using ID3 titles already loaded by the player and filename-derived titles otherwise, regardless of the artist prefix. Shuffle randomizes the remaining songs in that folder. When at least two other songs are available, returning to shuffle avoids repeating the previous upcoming order, even after switching modes or reopening the app. Restoring an existing playback session preserves its selected mode; previously saved sequential playback is restored as **a-z**.
@@ -26,7 +30,7 @@ Open **Queue** from the home screen, a folder's song list, or the full player wh
 
 The full-screen player has a **LYRICS** action beside the current song title. Lyrics are fetched from LRCLIB only after the user taps it, and only for the current track. Synced LRC lines follow playback time and scroll automatically; plain lyrics, instrumental tracks, missing results, and network failures each have a dedicated fallback state. Lyrics are not fetched for queued or background tracks.
 
-The current Android release is version `1.6.2` (`versionCode` `47`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
+The current Android release is version `1.6.5` (`versionCode` `50`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 
 ## mp3fy Wrapped
 
