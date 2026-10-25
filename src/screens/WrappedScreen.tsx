@@ -195,7 +195,6 @@ export function WrappedScreen({ revision, onBack, onPrepareBackup, onRestoreBack
       </View>
 
       <Text style={styles.pageTitle}>Your music, in numbers.</Text>
-      <Text style={styles.pageIntro}>The songs and artists you have spent time with.</Text>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
         {TABS.map((tab) => <Pressable key={tab.key} accessibilityRole="tab" accessibilityState={{ selected: period === tab.key }} onPress={() => setPeriod(tab.key)} style={[styles.tab, period === tab.key && styles.activeTab]}><Text style={[styles.tabText, period === tab.key && styles.activeTabText]}>{tab.label}</Text></Pressable>)}
@@ -229,7 +228,6 @@ export function WrappedScreen({ revision, onBack, onPrepareBackup, onRestoreBack
           <View style={styles.milestoneRow}><View><Text style={styles.milestoneLabel}>LONGEST DAY</Text><Text style={styles.milestoneDetail}>{summary.longestDay ? periodLabel('day', summary.longestDay.period) : 'No listening yet'}</Text></View><Text style={styles.milestoneValue}>{summary.longestDay ? durationLabel(summary.longestDay.listenedMs) : '—'}</Text></View>
           <View style={styles.milestoneRow}><View><Text style={styles.milestoneLabel}>BIGGEST MONTH</Text><Text style={styles.milestoneDetail}>{summary.longestMonth ? periodLabel('month', summary.longestMonth.period) : 'No listening yet'}</Text></View><Text style={styles.milestoneValue}>{summary.longestMonth ? durationLabel(summary.longestMonth.listenedMs) : '—'}</Text></View>
         </View> : null}
-        <Text style={styles.footnote}>A play is counted after 30 seconds of listening. Time reflects actual playback, including shorter listens. Day, week and month rankings show the current period. You can revisit past years; All Time keeps accumulating.</Text>
       </>}
 
       <View style={styles.backupSection}>
@@ -257,7 +255,6 @@ const styles = StyleSheet.create({
   backText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1 },
   pressed: { opacity: 0.6 },
   pageTitle: { color: '#000000', fontSize: 27, fontWeight: '700', letterSpacing: -0.8, marginTop: 22 },
-  pageIntro: { color: '#555555', fontSize: 13, marginTop: 5 },
   tabs: { gap: 7, paddingTop: 22, paddingBottom: 10 },
   tab: { borderColor: '#000000', borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11 },
   activeTab: { backgroundColor: '#000000' },
@@ -299,7 +296,6 @@ const styles = StyleSheet.create({
   milestoneLabel: { color: '#000000', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   milestoneDetail: { color: '#666666', fontSize: 10, marginTop: 4 },
   milestoneValue: { color: '#000000', fontSize: 16, fontWeight: '700', marginLeft: 10 },
-  footnote: { color: '#666666', fontSize: 11, lineHeight: 17, marginTop: 24 },
   backupSection: { borderTopColor: '#000000', borderTopWidth: 1, marginTop: 36, paddingTop: 25 },
   backupCopy: { color: '#555555', fontSize: 12, lineHeight: 18, marginBottom: 15 },
   backupState: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
