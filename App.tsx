@@ -1202,6 +1202,10 @@ function ScreenHeader({ subtitle, right }: { subtitle: string; right?: React.Rea
   );
 }
 
+function WrappedButton({ onPress }: { onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel="Open Wrapped" onPress={onPress} style={({ pressed }) => [styles.wrappedButton, pressed && styles.pressed]}><MaterialCommunityIcons name="timer-sand" size={21} color="#000000" /></Pressable>;
+}
+
 function FolderArtwork({ uri }: { uri?: string | null }) {
   return uri ? <Image source={{ uri }} style={styles.folderArtwork} /> : <View style={styles.folderArtworkPlaceholder}><Text style={styles.folderArtworkPlaceholderText}>DIR</Text></View>;
 }
@@ -1209,10 +1213,10 @@ function FolderArtwork({ uri }: { uri?: string | null }) {
 const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScanning, scanningFolderUris, notice, onAddFolder, onAddSong, onOpenFolder, onLongPressFolder, onOpenWrapped }: { folders: { folder: Folder; count: number }[]; tracksCount: number; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onAddSong: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void; onOpenWrapped: () => void }) {
   return (
     <View style={styles.screen}>
-      <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{folders.length} FOLDERS</Text><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
+      <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{folders.length} FOLDERS</Text><WrappedButton onPress={onOpenWrapped} /></View>} />
       <View style={styles.screenTitleRow}><View><Text style={styles.screenTitle}>FOLDERS</Text><Text style={styles.screenSubtitle}>{tracksCount} tracks available</Text></View><View style={styles.libraryActions}><Pressable accessibilityRole="button" accessibilityLabel="Add song" accessibilityHint="Choose an MP3 file" onPress={onAddSong} style={({ pressed }) => [styles.libraryIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="music-note-plus" size={27} color="#000000" /></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Add folder" accessibilityHint="Choose a folder of MP3 files" onPress={onAddFolder} style={({ pressed }) => [styles.libraryIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="folder-plus-outline" size={27} color="#000000" /></Pressable></View></View>
       {isScanning && !folders.length ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning selected folders...</Text></View> : folders.length ? <FlatList data={folders} keyExtractor={({ folder }) => folder.uri} renderItem={({ item }) => <Pressable delayLongPress={450} onLongPress={() => onLongPressFolder(item.folder)} onPress={() => onOpenFolder(item.folder)} style={({ pressed }) => [styles.folderCard, pressed && styles.pressed]}><FolderArtwork uri={item.folder.imageUri} /><View style={styles.folderCopy}><Text style={styles.folderTitle} numberOfLines={1}>{item.folder.name}</Text><View style={styles.folderMetaRow}><Text style={styles.folderMeta}>{item.count}</Text>{scanningFolderUris.has(item.folder.uri) ? <ActivityIndicator color="#000000" size="small" /> : null}</View></View><Text style={styles.chevron}>&gt;</Text></Pressable>} contentContainerStyle={styles.listContent} initialNumToRender={8} maxToRenderPerBatch={8} removeClippedSubviews windowSize={5} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No folders selected</Text><Text style={styles.description}>Add a folder containing your MP3 files. Only the folders you choose will be scanned.</Text><Text style={styles.notice}>{notice}</Text></View>}
-      <View style={styles.footer}><Text style={styles.footerText}>1.5.5</Text></View>
+      <View style={styles.footer}><Text style={styles.footerText}>1.5.6</Text></View>
     </View>
   );
 });
@@ -1231,7 +1235,7 @@ const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, cu
   }, [currentMetadata, currentTrack, metadataCache, search, tracks]);
   return (
     <View style={styles.screen}>
-      <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{tracks.length} TRACKS</Text><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
+      <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{tracks.length} TRACKS</Text><WrappedButton onPress={onOpenWrapped} /></View>} />
       <View style={styles.pageHeading}><Text numberOfLines={2} style={styles.screenTitle}>{folder.name}</Text></View>
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={({ track }) => track.uri} initialNumToRender={16} maxToRenderPerBatch={12} removeClippedSubviews windowSize={7} renderItem={({ item: { track, metadata } }) => {
@@ -1271,7 +1275,7 @@ function IconButton({ icon, accessibilityLabel, onPress, active = false, transpo
 function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenWrapped }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenWrapped: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
-      <ScreenHeader subtitle="NOW PLAYING" right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
+      <ScreenHeader subtitle="NOW PLAYING" right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /><WrappedButton onPress={onOpenWrapped} /></View>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
       <MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} />
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
@@ -1296,7 +1300,7 @@ const styles = StyleSheet.create({
   label: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginTop: 4 },
   count: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginLeft: 10 },
   headerActions: { alignItems: 'flex-end', gap: 7 },
-  wrappedLink: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, paddingVertical: 5, textDecorationLine: 'underline' },
+  wrappedButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 34, justifyContent: 'center', width: 34 },
   screenTitleRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingTop: 20 },
   pageHeading: { paddingTop: 20 },
   screenTitle: { color: '#000000', fontSize: 24, fontWeight: '700', letterSpacing: -0.5 },

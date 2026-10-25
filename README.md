@@ -12,7 +12,7 @@ The folder list, folder artwork locations, and discovered track list are saved i
 
 Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. Search matches titles, artists, and filenames. Sequential playback follows title order within the selected folder.
 
-The current Android release is version `1.5.5` (`versionCode` `41`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
+The current Android release is version `1.5.6` (`versionCode` `42`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 
 ## mp3fy Wrapped
 
