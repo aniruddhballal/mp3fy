@@ -186,7 +186,7 @@ function buildQueue(tracks: Track[], selectedTrack: Track, mode: PlaybackMode) {
   if (mode === 'shuffle') {
     return { queue: [selectedTrack, ...shuffle(scopedTracks.filter((track) => track.uri !== selectedTrack.uri))], index: 0 };
   }
-  const queue = [...scopedTracks].sort((a, b) => a.name.localeCompare(b.name));
+  const queue = [...scopedTracks].sort(compareTracksByTitle);
   return { queue, index: Math.max(0, queue.findIndex((track) => track.uri === selectedTrack.uri)) };
 }
 
@@ -202,6 +202,11 @@ function fallbackMetadata(track: Track): TrackMetadata {
     return { title: baseName.slice(separator + 3).trim() || baseName, artist: baseName.slice(0, separator).trim(), album: '', trackNumber: '' };
   }
   return { title: baseName, artist: '', album: '', trackNumber: '' };
+}
+
+function compareTracksByTitle(a: Track, b: Track): number {
+  const titleOrder = fallbackMetadata(a).title.localeCompare(fallbackMetadata(b).title);
+  return titleOrder || a.name.localeCompare(b.name);
 }
 
 function readAscii(bytes: Uint8Array, start: number, length: number): string {
@@ -1149,7 +1154,7 @@ function Mp3fyApp() {
           {screen.kind === 'folders' ? (
             <FoldersScreen folders={folderCounts} tracksCount={tracks.length} isScanning={isScanning} scanningFolderUris={scanningFolderUris} notice={notice} onAddFolder={addFolder} onAddSong={addSong} onOpenFolder={openFolder} onLongPressFolder={setFolderActions} onOpenWrapped={openWrapped} />
           ) : screen.kind === 'songs' && selectedFolder ? (
-            <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} isScanning={isScanning} onPlayTrack={playTrack} onOpenWrapped={openWrapped} />
+            <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} currentMetadata={currentMetadata} metadataCache={metadataCache} isScanning={isScanning} onPlayTrack={playTrack} onOpenWrapped={openWrapped} />
           ) : screen.kind === 'wrapped' ? (
             <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} onPrepareBackup={prepareWrappedBackup} onRestoreBackup={restoreWrappedHistory} />
           ) : currentTrack ? (
@@ -1212,17 +1217,26 @@ const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, isScan
   );
 });
 
-const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, isScanning, onPlayTrack, onOpenWrapped }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; isScanning: boolean; onPlayTrack: (track: Track) => void; onOpenWrapped: () => void }) {
+const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, currentMetadata, metadataCache, isScanning, onPlayTrack, onOpenWrapped }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; currentMetadata: TrackMetadata | null; metadataCache: ReadonlyMap<string, TrackMetadata>; isScanning: boolean; onPlayTrack: (track: Track) => void; onOpenWrapped: () => void }) {
   const [search, setSearch] = useState('');
-  const visibleTracks = useMemo(() => tracks.filter((track) => track.name.toLowerCase().includes(search.trim().toLowerCase())), [search, tracks]);
+  const visibleTracks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return tracks.map((track) => ({
+      track,
+      metadata: track.uri === currentTrack?.uri && currentMetadata
+        ? currentMetadata
+        : metadataCache.get(track.uri) ?? fallbackMetadata(track),
+    })).filter(({ track, metadata }) => !query || `${metadata.title} ${metadata.artist} ${track.name}`.toLowerCase().includes(query))
+      .sort((a, b) => a.metadata.title.localeCompare(b.metadata.title) || a.track.name.localeCompare(b.track.name));
+  }, [currentMetadata, currentTrack, metadataCache, search, tracks]);
   return (
     <View style={styles.screen}>
       <ScreenHeader subtitle="" right={<View style={styles.headerActions}><Text style={styles.count}>{tracks.length} TRACKS</Text><Pressable accessibilityRole="button" onPress={onOpenWrapped}><Text style={styles.wrappedLink}>WRAPPED</Text></Pressable></View>} />
       <View style={styles.pageHeading}><Text numberOfLines={2} style={styles.screenTitle}>{folder.name}</Text></View>
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
-      {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={(item) => item.uri} initialNumToRender={16} maxToRenderPerBatch={12} removeClippedSubviews windowSize={7} renderItem={({ item }) => {
-        const isPlaying = currentTrack?.uri === item.uri;
-        return <Pressable onPress={() => onPlayTrack(item)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}>{isPlaying ? <MarqueeText style={styles.trackNameViewport} text={item.name} textStyle={styles.trackName} fadeColor="#F2F2F2" fadeTransparentColor="rgba(242,242,242,0)" /> : <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackName}>{item.name}</Text>}</View></Pressable>;
+      {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={({ track }) => track.uri} initialNumToRender={16} maxToRenderPerBatch={12} removeClippedSubviews windowSize={7} renderItem={({ item: { track, metadata } }) => {
+        const isPlaying = currentTrack?.uri === track.uri;
+        return <Pressable onPress={() => onPlayTrack(track)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}>{isPlaying ? <MarqueeText style={styles.trackNameViewport} text={metadata.title} textStyle={styles.trackName} fadeColor="#F2F2F2" fadeTransparentColor="rgba(242,242,242,0)" /> : <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackName}>{metadata.title}</Text>}{metadata.artist ? <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackArtist}>{metadata.artist}</Text> : null}</View></Pressable>;
       }} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No MP3 files</Text><Text style={styles.description}>This folder does not currently contain any MP3 files.</Text></View>}
     </View>
   );
@@ -1316,6 +1330,7 @@ const styles = StyleSheet.create({
   trackCopy: { flex: 1, marginRight: 12 },
   trackNameViewport: { minWidth: 0 },
   trackName: { color: '#000000', fontSize: 15, fontWeight: '600' },
+  trackArtist: { color: '#666666', fontSize: 12, marginTop: 4 },
   search: { borderBottomColor: '#000000', borderBottomWidth: 1, color: '#000000', fontSize: 15, marginTop: 18, paddingBottom: 9, paddingHorizontal: 0 },
   loading: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   startupLoading: { alignItems: 'center', flex: 1, justifyContent: 'center' },

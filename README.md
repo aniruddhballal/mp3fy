@@ -10,6 +10,8 @@ The current playable build includes Android folder selection, recursive MP3 disc
 
 The folder list, folder artwork locations, and discovered track list are saved in app storage. On later launches, the saved library appears as soon as it is read; a scan then refreshes it for files added or removed since the last launch. Adding or removing a folder also updates the saved library. The first launch after upgrading from an older build still needs one full scan to create this snapshot.
 
+Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. Search matches titles, artists, and filenames. Sequential playback follows title order within the selected folder.
+
 The current Android release is version `1.5.5` (`versionCode` `41`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 
 ## mp3fy Wrapped
