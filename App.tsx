@@ -525,6 +525,7 @@ function Mp3fyApp() {
   const [scanningFolderUris, setScanningFolderUris] = useState<Set<string>>(new Set());
   const [isLibraryReady, setIsLibraryReady] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
   const pendingRestorePosition = useRef<number | null>(null);
   const latestPlayback = useRef<SavedPlayback | null>(null);
@@ -658,13 +659,19 @@ function Mp3fyApp() {
       } else if (nextState === 'active') {
         void initializeWrappedStore().catch(() => undefined);
       }
-      if (currentTrack && nextState !== 'unknown') {
+      if (notificationsGranted && currentTrack && nextState !== 'unknown') {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
-        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
+        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: true, showSeekForward: true });
       }
     });
     return () => subscription.remove();
-  }, [artworkCache, currentMetadata, currentTrack, observePlayback, player, savePlayback, tracker]);
+  }, [artworkCache, currentMetadata, currentTrack, notificationsGranted, observePlayback, player, savePlayback, tracker]);
+
+  useEffect(() => {
+    if (!notificationsGranted || !currentTrack) return;
+    const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
+    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: true, showSeekForward: true });
+  }, [artworkCache, currentMetadata, currentTrack?.uri, notificationsGranted, player]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -706,7 +713,7 @@ function Mp3fyApp() {
       setCurrentMetadata(metadata);
       setCurrentArtwork(mediaArtwork);
       setIsArtworkLoading(false);
-      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', artworkUrl: mediaArtwork ?? undefined });
+      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: mediaArtwork ?? undefined });
     };
 
     const cachedMetadata = metadataCache.get(track.uri);
@@ -730,7 +737,7 @@ function Mp3fyApp() {
   useEffect(() => {
     let mounted = true;
     setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
-    requestNotificationPermissionsAsync().catch(() => undefined);
+    requestNotificationPermissionsAsync().then(({ granted }) => setNotificationsGranted(granted)).catch(() => undefined);
     pruneArtworkCache();
     const restore = async () => {
       let refreshFolders: Folder[] | null = null;
@@ -908,7 +915,7 @@ function Mp3fyApp() {
     setCurrentMetadata(nextMetadata);
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
-    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy' });
+    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined }, { showSeekBackward: true, showSeekForward: true });
     player.play();
     restoreTimer.current = setTimeout(() => {
       if (pendingRestorePosition.current === null) return;
@@ -955,7 +962,7 @@ function Mp3fyApp() {
     setIsArtworkLoading(true);
     const nextMetadata = fallbackMetadata(nextTrack);
     setCurrentMetadata(nextMetadata);
-    callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy' });
+    callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
     void loadArtwork(nextTrack);
   }, [currentTrack?.uri, loadArtwork, player, queue, status.currentIndex]);
 
