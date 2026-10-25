@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { setAudioModeAsync, useAudioPlaylist, useAudioPlaylistStatus, type AudioPlaylistStatus } from 'expo-audio';
+import { requestNotificationPermissionsAsync, setAudioModeAsync, useAudioPlaylist, useAudioPlaylistStatus, type AudioPlaylistStatus } from 'expo-audio';
 import { Directory, File, Paths } from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -730,6 +730,7 @@ function Mp3fyApp() {
   useEffect(() => {
     let mounted = true;
     setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
+    requestNotificationPermissionsAsync().catch(() => undefined);
     pruneArtworkCache();
     const restore = async () => {
       let refreshFolders: Folder[] | null = null;
@@ -1424,7 +1425,7 @@ function LyricsModal({ visible, title, artist, result, loading, currentTime, onC
       <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
       <View style={styles.lyricsHeader}><View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.label}>LYRICS</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close lyrics" onPress={onClose} style={styles.headerIconButton}><MaterialCommunityIcons name="close" size={23} color="#000000" /></Pressable></View>
       <View style={styles.lyricsTrack}><Text numberOfLines={1} style={styles.lyricsTitle}>{title}</Text>{artist ? <Text numberOfLines={1} style={styles.lyricsArtist}>{artist}</Text> : null}</View>
-      {loading ? <View style={styles.lyricsMessage}><ActivityIndicator color="#000000" /><Text style={styles.lyricsMessageText}>Loading lyrics...</Text></View> : result?.kind === 'error' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Lyrics unavailable</Text><Text style={styles.lyricsMessageText}>{result.message}</Text><Pressable accessibilityRole="button" onPress={onRetry} style={styles.lyricsRetry}><Text style={styles.lyricsRetryText}>TRY AGAIN</Text></Pressable></View> : result?.kind === 'not-found' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>No lyrics found</Text><Text style={styles.lyricsMessageText}>LRCLIB does not have lyrics for this song.</Text></View> : result?.kind === 'instrumental' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Instrumental track</Text><Text style={styles.lyricsMessageText}>There are no lyrics for this song.</Text></View> : result?.kind === 'plain' ? <ScrollView contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{result.plainLyrics.split(/\r?\n/).map((line, index) => <Text key={`${index}-${line}`} style={styles.plainLyricLine}>{line || ' '}</Text>)}</ScrollView> : result?.kind === 'synced' ? <ScrollView ref={scrollRef} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{syncedLines.map((line, index) => <SyncedLyricLine key={`${index}-${line.timestampMs}`} line={line.text} active={index === activeLine} onLayout={(event) => { lineOffsets.current[index] = event.nativeEvent.layout.y; }} />)}</ScrollView> : null}
+      {loading ? <View style={styles.lyricsMessage}><ActivityIndicator color="#000000" /><Text style={styles.lyricsMessageText}>Loading lyrics...</Text></View> : result?.kind === 'error' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Lyrics unavailable</Text><Text style={styles.lyricsMessageText}>{result.message}</Text><Pressable accessibilityRole="button" onPress={onRetry} style={styles.lyricsRetry}><Text style={styles.lyricsRetryText}>TRY AGAIN</Text></Pressable></View> : result?.kind === 'not-found' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>No lyrics found</Text><Text style={styles.lyricsMessageText}>LRCLIB does not have lyrics for this song.</Text></View> : result?.kind === 'instrumental' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Instrumental track</Text><Text style={styles.lyricsMessageText}>There are no lyrics for this song.</Text></View> : result?.kind === 'plain' ? <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{result.plainLyrics.split(/\r?\n/).map((line, index) => <Text key={`${index}-${line}`} style={styles.plainLyricLine}>{line || ' '}</Text>)}</ScrollView> : result?.kind === 'synced' ? <ScrollView ref={scrollRef} style={styles.lyricsScroll} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{syncedLines.map((line, index) => <SyncedLyricLine key={`${index}-${line.timestampMs}`} line={line.text} active={index === activeLine} onLayout={(event) => { lineOffsets.current[index] = event.nativeEvent.layout.y; }} />)}</ScrollView> : null}
     </SafeAreaView>
   </Modal>;
 }
@@ -1526,7 +1527,8 @@ const styles = StyleSheet.create({
   lyricsTrack: { paddingTop: 20 },
   lyricsTitle: { color: '#000000', fontSize: 23, fontWeight: '700' },
   lyricsArtist: { color: '#555555', fontSize: 13, marginTop: 4 },
-  lyricsContent: { paddingBottom: 72, paddingTop: 60 },
+  lyricsScroll: { flex: 1, marginBottom: 32, marginTop: 32 },
+  lyricsContent: { paddingBottom: 0, paddingTop: 0 },
   lyricsMessage: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
   lyricsMessageTitle: { color: '#000000', fontSize: 20, fontWeight: '700', textAlign: 'center' },
   lyricsMessageText: { color: '#555555', fontSize: 13, lineHeight: 20, marginTop: 10, textAlign: 'center' },

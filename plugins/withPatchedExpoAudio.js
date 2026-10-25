@@ -1,4 +1,4 @@
-const { withGradleProperties, withProjectBuildGradle, withSettingsGradle } = require('@expo/config-plugins');
+const { withAndroidManifest, withGradleProperties, withProjectBuildGradle, withSettingsGradle } = require('@expo/config-plugins');
 
 const AUDIO_PROJECT = "include ':expo-audio-local'\nproject(':expo-audio-local').projectDir = new File(rootDir, '../node_modules/expo-audio/android')";
 const AUDIO_SUBSTITUTION = `
@@ -22,6 +22,15 @@ const RELEASE_OPTIMIZATION_PROPERTIES = {
 };
 
 module.exports = function withPatchedExpoAudio(config) {
+  config = withAndroidManifest(config, (modConfig) => {
+    const permissions = modConfig.modResults.manifest['uses-permission'] ?? [];
+    if (!permissions.some((permission) => permission.$?.['android:name'] === 'android.permission.POST_NOTIFICATIONS')) {
+      permissions.push({ $: { 'android:name': 'android.permission.POST_NOTIFICATIONS' } });
+    }
+    modConfig.modResults.manifest['uses-permission'] = permissions;
+    return modConfig;
+  });
+
   config = withGradleProperties(config, (modConfig) => {
     for (const [key, value] of Object.entries(RELEASE_OPTIMIZATION_PROPERTIES)) {
       const property = modConfig.modResults.find((item) => item.type === 'property' && item.key === key);
