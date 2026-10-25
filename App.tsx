@@ -9,6 +9,7 @@ import {
   Animated,
   AppState,
   BackHandler,
+  Easing,
   FlatList,
   Image,
   LayoutChangeEvent,
@@ -38,7 +39,8 @@ const PLAYBACK_KEY = 'mp3fy.playback.v1';
 const SHUFFLE_HISTORY_KEY = 'mp3fy.shuffleHistory.v1';
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const MARQUEE_FADE_WIDTH = 28;
-const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 1000;
+const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
+const LYRICS_SYNC_LEAD_SECONDS = 0.12;
 const MAX_METADATA_READ_BYTES = 4 * 1024 * 1024;
 const MAX_ARTWORK_CACHE_FILES = 48;
 const MAX_ARTWORK_CACHE_BYTES = 24 * 1024 * 1024;
@@ -1401,7 +1403,7 @@ function LyricsModal({ visible, title, artist, result, loading, currentTime, onC
   const activeLine = useMemo(() => {
     if (result?.kind !== 'synced') return -1;
     let active = -1;
-    result.lines.forEach((line, index) => { if (line.timestampMs / 1000 <= currentTime) active = index; });
+    result.lines.forEach((line, index) => { if (line.timestampMs / 1000 <= currentTime + LYRICS_SYNC_LEAD_SECONDS) active = index; });
     return active;
   }, [currentTime, result]);
 
@@ -1422,9 +1424,21 @@ function LyricsModal({ visible, title, artist, result, loading, currentTime, onC
       <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
       <View style={styles.lyricsHeader}><View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.label}>LYRICS</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close lyrics" onPress={onClose} style={styles.headerIconButton}><MaterialCommunityIcons name="close" size={23} color="#000000" /></Pressable></View>
       <View style={styles.lyricsTrack}><Text numberOfLines={1} style={styles.lyricsTitle}>{title}</Text>{artist ? <Text numberOfLines={1} style={styles.lyricsArtist}>{artist}</Text> : null}</View>
-      {loading ? <View style={styles.lyricsMessage}><ActivityIndicator color="#000000" /><Text style={styles.lyricsMessageText}>Loading lyrics...</Text></View> : result?.kind === 'error' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Lyrics unavailable</Text><Text style={styles.lyricsMessageText}>{result.message}</Text><Pressable accessibilityRole="button" onPress={onRetry} style={styles.lyricsRetry}><Text style={styles.lyricsRetryText}>TRY AGAIN</Text></Pressable></View> : result?.kind === 'not-found' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>No lyrics found</Text><Text style={styles.lyricsMessageText}>LRCLIB does not have lyrics for this song.</Text></View> : result?.kind === 'instrumental' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Instrumental track</Text><Text style={styles.lyricsMessageText}>There are no lyrics for this song.</Text></View> : result?.kind === 'plain' ? <ScrollView contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{result.plainLyrics.split(/\r?\n/).map((line, index) => <Text key={`${index}-${line}`} style={styles.plainLyricLine}>{line || ' '}</Text>)}</ScrollView> : result?.kind === 'synced' ? <ScrollView ref={scrollRef} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{syncedLines.map((line, index) => <View key={`${index}-${line.timestampMs}`} onLayout={(event) => { lineOffsets.current[index] = event.nativeEvent.layout.y; }} style={styles.syncedLyricRow}><Text style={[styles.syncedLyricText, index === activeLine && styles.activeSyncedLyricText]}>{line.text || ' '}</Text></View>)}</ScrollView> : null}
+      {loading ? <View style={styles.lyricsMessage}><ActivityIndicator color="#000000" /><Text style={styles.lyricsMessageText}>Loading lyrics...</Text></View> : result?.kind === 'error' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Lyrics unavailable</Text><Text style={styles.lyricsMessageText}>{result.message}</Text><Pressable accessibilityRole="button" onPress={onRetry} style={styles.lyricsRetry}><Text style={styles.lyricsRetryText}>TRY AGAIN</Text></Pressable></View> : result?.kind === 'not-found' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>No lyrics found</Text><Text style={styles.lyricsMessageText}>LRCLIB does not have lyrics for this song.</Text></View> : result?.kind === 'instrumental' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Instrumental track</Text><Text style={styles.lyricsMessageText}>There are no lyrics for this song.</Text></View> : result?.kind === 'plain' ? <ScrollView contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{result.plainLyrics.split(/\r?\n/).map((line, index) => <Text key={`${index}-${line}`} style={styles.plainLyricLine}>{line || ' '}</Text>)}</ScrollView> : result?.kind === 'synced' ? <ScrollView ref={scrollRef} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{syncedLines.map((line, index) => <SyncedLyricLine key={`${index}-${line.timestampMs}`} line={line.text} active={index === activeLine} onLayout={(event) => { lineOffsets.current[index] = event.nativeEvent.layout.y; }} />)}</ScrollView> : null}
     </SafeAreaView>
   </Modal>;
+}
+
+function SyncedLyricLine({ line, active, onLayout }: { line: string; active: boolean; onLayout: (event: { nativeEvent: { layout: { y: number } } }) => void }) {
+  const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
+
+  useEffect(() => {
+    const animation = Animated.timing(progress, { duration: 180, easing: Easing.out(Easing.cubic), toValue: active ? 1 : 0, useNativeDriver: false });
+    animation.start();
+    return () => animation.stop();
+  }, [active, progress]);
+
+  return <View onLayout={onLayout} style={styles.syncedLyricRow}><Animated.Text style={[styles.syncedLyricText, { color: progress.interpolate({ inputRange: [0, 1], outputRange: ['#999999', '#000000'] }), opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }]}>{line || ' '}</Animated.Text></View>;
 }
 
 const styles = StyleSheet.create({
@@ -1520,8 +1534,7 @@ const styles = StyleSheet.create({
   lyricsRetryText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.7 },
   plainLyricLine: { color: '#222222', fontSize: 18, lineHeight: 29, marginBottom: 12 },
   syncedLyricRow: { paddingVertical: 9 },
-  syncedLyricText: { color: '#999999', fontSize: 18, fontWeight: '600', lineHeight: 25 },
-  activeSyncedLyricText: { color: '#000000', fontSize: 22, fontWeight: '700', lineHeight: 29 },
+  syncedLyricText: { fontSize: 18, fontWeight: '600', lineHeight: 25 },
   progressTrack: { backgroundColor: '#DDDDDD', height: 8, marginTop: 16, overflow: 'hidden' },
   progressFill: { backgroundColor: '#000000', height: 8 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },

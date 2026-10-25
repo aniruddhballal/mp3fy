@@ -40,7 +40,7 @@ export type LyricsFailure = {
 export type LyricsResult = LyricsSuccess | LyricsNotFound | LyricsFailure;
 
 export const LRCLIB_API_URL = 'https://lrclib.net/api/get';
-export const MP3FY_USER_AGENT = 'mp3fy/1.6.1';
+export const MP3FY_USER_AGENT = 'mp3fy/1.6.2';
 
 const TIMESTAMP_TAG = /\[(\d+):(\d{1,2})(?:\.(\d{1,3}))?\]/g;
 const TIMESTAMP_PREFIX = /^(?:\s*\[\d+:\d{1,2}(?:\.\d{1,3})?\])+/;
