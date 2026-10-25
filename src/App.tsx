@@ -17,7 +17,7 @@ import { WrappedScreen } from './screens/WrappedScreen';
 import { QueueScreen, type QueueRow } from './screens/QueueScreen';
 import { FoldersScreen, MiniPlayer, SongsScreen } from './screens/LibraryScreens';
 import { FolderDialogs } from './components/FolderDialogs';
-import { moveUpcoming, upcomingFrom } from './features/playback/queueOrder';
+import { upcomingFrom } from './features/playback/queueOrder';
 import { buildQueue, restorePlaybackMode, type PlaybackMode } from './features/playback/playbackOrder';
 import { APP_VERSION } from './config/appVersion';
 import type { Folder, RepeatMode, SavedPlayback, Track, TrackMetadata } from './types/domain';
@@ -29,6 +29,7 @@ import { PlayerScreen } from './components/player/PlayerScreen';
 import { useScreenNavigation } from './hooks/useScreenNavigation';
 import { FOLDERS_KEY, LIBRARY_KEY, useLibraryState } from './features/library/useLibraryState';
 import { PLAYBACK_KEY, SHUFFLE_HISTORY_KEY, usePlaybackPersistence } from './features/playback/usePlaybackPersistence';
+import { usePlaybackController } from './features/playback/usePlaybackController';
 
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
 const MAX_MEMORY_ARTWORK_ENTRIES = 32;
@@ -310,181 +311,39 @@ function Mp3fyApp() {
     };
   }, [loadArtwork, player, rememberShuffle, rescan, savePlayback]);
 
-  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, nextRepeatMode: RepeatMode = repeatMode, nextMode: PlaybackMode = mode) => {
-    const nextTrack = nextQueue[nextIndex];
-    if (!nextTrack) return;
-    observePlayback();
-    tracker.restart();
-    void tracker.flush().catch(() => undefined);
-    pendingRestorePosition.current = 0;
-    if (restoreTimer.current) clearTimeout(restoreTimer.current);
-    player.clear();
-    nextQueue.forEach((track) => player.add({ uri: track.uri }));
-    player.loop = nextRepeatMode === 'one' ? 'single' : 'all';
-    player.skipTo(nextIndex);
-    const playback: SavedPlayback = {
-      track: nextTrack,
-      queueUris: nextQueue.map((track) => track.uri),
-      currentTime: 0,
-      mode: nextMode,
-      repeatMode: nextRepeatMode,
-      standalone: !folders.some((folder) => folder.uri === nextTrack.folderUri),
-    };
-    latestPlayback.current = playback;
-    savePlayback(playback);
-    setQueue(nextQueue);
-    setQueueIndex(nextIndex);
-    setCurrentTrack(nextTrack);
-    const nextMetadata = fallbackMetadata(nextTrack);
-    setCurrentMetadata(nextMetadata);
-    setCurrentArtwork(null);
-    setIsArtworkLoading(true);
-    lockScreenTrackUri.current = nextTrack.uri;
-    activateLockScreen(player, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
-    player.play();
-    restoreTimer.current = setTimeout(() => {
-      if (pendingRestorePosition.current === null) return;
-      pendingRestorePosition.current = null;
-      const current = latestPlayback.current;
-      if (current) savePlayback({ ...current, currentTime: Math.max(0, Math.floor(player.currentTime)) });
-    }, 5000);
-    void loadArtwork(nextTrack);
-  }, [folders, loadArtwork, mode, observePlayback, player, repeatMode, savePlayback, tracker]);
-
-  const replaceQueueWithoutInterrupt = useCallback((nextQueue: Track[], nextIndex: number, nextMode = mode, nextRepeatMode = repeatMode) => {
-    const activeNativeIndex = player.currentIndex;
-    const activeQueueIndex = queue.findIndex((track) => track.uri === currentTrack?.uri);
-    if (!currentTrack || activeNativeIndex < 0 || activeNativeIndex >= player.trackCount || activeQueueIndex < 0) return false;
-
-    // Keep the active native item in place while removing and inserting the
-    // surrounding items. This avoids clear(), skipTo(), seekTo(), and play().
-    for (let index = player.trackCount - 1; index >= 0; index -= 1) {
-      if (index !== activeNativeIndex) player.remove(index);
-    }
-    nextQueue.slice(0, nextIndex).forEach((track, index) => player.insert({ uri: track.uri }, index));
-    const nextTrackIndex = nextIndex;
-    nextQueue.slice(nextIndex + 1).forEach((track, index) => player.insert({ uri: track.uri }, nextTrackIndex + 1 + index));
-    player.loop = nextRepeatMode === 'one' ? 'single' : 'all';
-    setQueue(nextQueue);
-    setQueueIndex(nextIndex);
-    const playback = latestPlayback.current;
-    if (playback) {
-      const updated = { ...playback, queueUris: nextQueue.map((track) => track.uri), currentTime: pendingRestorePosition.current ?? Math.max(0, Math.floor(player.currentTime)), mode: nextMode, repeatMode: nextRepeatMode };
-      latestPlayback.current = updated;
-      savePlayback(updated);
-    }
-    return true;
-  }, [currentTrack, mode, player, queue, repeatMode, savePlayback]);
-
-  useEffect(() => {
-    if (!queue.length || status.currentIndex < 0 || status.currentIndex >= queue.length) return;
-    if (player.currentIndex !== status.currentIndex) return;
-    const nextTrack = queue[status.currentIndex];
-    setQueueIndex(status.currentIndex);
-    if (currentTrack?.uri === nextTrack.uri) return;
-    setCurrentTrack(nextTrack);
-    setCurrentArtwork(null);
-    setIsArtworkLoading(true);
-    const nextMetadata = fallbackMetadata(nextTrack);
-    setCurrentMetadata(nextMetadata);
-    updateLockScreen(player, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
-    void loadArtwork(nextTrack);
-  }, [currentTrack?.uri, loadArtwork, player, queue, status.currentIndex]);
-
-  useEffect(() => {
-    player.loop = repeatMode === 'one' ? 'single' : 'all';
-  }, [player, repeatMode]);
-
-  const playTrack = useCallback((track: Track) => {
-    const nextPlayback = buildQueue(tracks, track, 'folder');
-    setMode('folder');
-    startPlayback(nextPlayback.queue, nextPlayback.index, repeatMode, 'folder');
-    setScreen({ kind: 'player', returnTo: 'songs' });
-  }, [repeatMode, startPlayback, tracks]);
-
-  const addSong = useCallback(async () => {
-    setNotice('Selecting a song.');
-    try {
-      const selection = await File.pickFileAsync({ mimeTypes: ['audio/mpeg', 'audio/*'] });
-      if (selection.canceled) {
-        setNotice('Song selection cancelled.');
-        return;
-      }
-      const selectedFile = selection.result;
-      if (!selectedFile.name.toLowerCase().endsWith('.mp3')) {
-        setNotice('Please select an MP3 file.');
-        return;
-      }
-
-      const parentDirectory = selectedFile.parentDirectory;
-      const selectedTrack: Track = {
-        folderName: parentDirectory.name || 'Selected song',
-        folderUri: parentDirectory.uri,
-        name: selectedFile.name,
-        uri: selectedFile.uri,
-      };
-      setRepeatMode('one');
-      startPlayback([selectedTrack], 0, 'one');
-      setScreen({ kind: 'player', returnTo: 'folders' });
-      setNotice(`${selectedFile.name} selected.`);
-    } catch {
-      setNotice('Song selection was cancelled or unavailable.');
-    }
-  }, [startPlayback]);
-
-  const playNext = useCallback(() => {
-    if (queue.length) {
-      observePlayback();
-      tracker.restart();
-      void tracker.flush().catch(() => undefined);
-      pendingRestorePosition.current = null;
-      if (restoreTimer.current) clearTimeout(restoreTimer.current);
-      player.next();
-    }
-  }, [observePlayback, player, queue.length, tracker]);
-
-  const playPrevious = useCallback(() => {
-    if (!queue.length) return;
-    observePlayback();
-    tracker.restart();
-    void tracker.flush().catch(() => undefined);
-    pendingRestorePosition.current = null;
-    if (restoreTimer.current) clearTimeout(restoreTimer.current);
-    if (status.currentTime > 3) {
-      player.seekTo(0).catch(() => undefined);
-      return;
-    }
-    player.previous();
-  }, [observePlayback, player, queue, queueIndex, status.currentTime, tracker]);
-
-  const updateQueuePreference = useCallback((nextMode: PlaybackMode) => {
-    if (!currentTrack) {
-      setMode(nextMode);
-      return;
-    }
-    const nextPlayback = buildQueue(tracks, currentTrack, nextMode, shuffleHistory.current.get(currentTrack.folderUri), Math.random, queueTitleFor);
-    if (replaceQueueWithoutInterrupt(nextPlayback.queue, nextPlayback.index, nextMode)) {
-      setMode(nextMode);
-      if (nextMode === 'shuffle') rememberShuffle(currentTrack.folderUri, nextPlayback.queue);
-    }
-  }, [currentTrack, queueTitleFor, rememberShuffle, replaceQueueWithoutInterrupt, tracks]);
-
-  const reorderUpcoming = useCallback((from: number, to: number) => {
-    if (!currentTrack || from < 0 || to < 0 || from >= upcomingTracks.length || to >= upcomingTracks.length) return;
-    replaceQueueWithoutInterrupt([currentTrack, ...moveUpcoming(upcomingTracks, from, to)], 0);
-  }, [currentTrack, replaceQueueWithoutInterrupt, upcomingTracks]);
-
-  const removeUpcoming = useCallback((uri: string) => {
-    if (!currentTrack || !upcomingTracks.some((track) => track.uri === uri)) return;
-    const nextUpcoming = upcomingTracks.filter((track) => track.uri !== uri);
-    const nextRepeatMode = nextUpcoming.length ? repeatMode : 'one';
-    if (replaceQueueWithoutInterrupt([currentTrack, ...nextUpcoming], 0, mode, nextRepeatMode) && !nextUpcoming.length) setRepeatMode('one');
-  }, [currentTrack, mode, repeatMode, replaceQueueWithoutInterrupt, upcomingTracks]);
-
-  const clearUpcoming = useCallback(() => {
-    if (!currentTrack || !upcomingTracks.length) return;
-    if (replaceQueueWithoutInterrupt([currentTrack], 0, mode, 'one')) setRepeatMode('one');
-  }, [currentTrack, mode, replaceQueueWithoutInterrupt, upcomingTracks.length]);
+  const { playTrack, addSong, playNext, playPrevious, updateQueuePreference, reorderUpcoming, removeUpcoming, clearUpcoming, togglePlayback, seek, displayedStatus, progress } = usePlaybackController({
+    player,
+    status,
+    folders,
+    tracks,
+    currentTrack,
+    queue,
+    upcomingTracks,
+    mode,
+    repeatMode,
+    progressWidth,
+    tracker,
+    observePlayback,
+    loadArtwork,
+    savePlayback,
+    rememberShuffle,
+    queueTitleFor,
+    pendingRestorePosition,
+    latestPlayback,
+    restoreTimer,
+    shuffleHistory,
+    lockScreenTrackUri,
+    setQueue,
+    setQueueIndex,
+    setMode,
+    setRepeatMode,
+    setCurrentTrack,
+    setCurrentMetadata,
+    setCurrentArtwork,
+    setIsArtworkLoading,
+    setNotice,
+    setScreen,
+  });
 
   const removeFolder = useCallback(async (folder: Folder) => {
     setNotice(`Removing ${folder.name}.`);
@@ -518,36 +377,6 @@ function Mp3fyApp() {
       setNotice('The folder could not be removed.');
     }
   }, [currentTrack, folders, observePlayback, player, savePlayback, screen, tracker]);
-
-  const togglePlayback = useCallback(() => {
-    observePlayback();
-    pendingRestorePosition.current = null;
-    if (restoreTimer.current) clearTimeout(restoreTimer.current);
-    if (status.playing) {
-      player.pause();
-      void tracker.flush().catch(() => undefined);
-      const playback = latestPlayback.current;
-      if (playback) savePlayback({ ...playback, currentTime: Math.max(0, Math.floor(player.currentTime)) });
-    } else player.play();
-  }, [observePlayback, player, savePlayback, status.playing, tracker]);
-  const seek = (event: { nativeEvent: { locationX: number } }) => {
-    if (!progressWidth || !status.duration) return;
-    observePlayback();
-    pendingRestorePosition.current = null;
-    if (restoreTimer.current) clearTimeout(restoreTimer.current);
-    const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / progressWidth));
-    const nextTime = ratio * status.duration;
-    tracker.markSeek(nextTime);
-    void tracker.flush().catch(() => undefined);
-    player.seekTo(nextTime).then(() => {
-      const playback = latestPlayback.current;
-      if (playback) savePlayback({ ...playback, currentTime: Math.floor(nextTime) });
-    }).catch(() => tracker.cancelSeek());
-  };
-  const displayedStatus = pendingRestorePosition.current === null
-    ? status
-    : { ...status, currentTime: pendingRestorePosition.current };
-  const progress = displayedStatus.duration ? Math.min(1, displayedStatus.currentTime / displayedStatus.duration) : 0;
 
   const prepareWrappedBackup = useCallback(async () => {
     observePlayback();
