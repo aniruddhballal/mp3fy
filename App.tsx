@@ -1438,7 +1438,7 @@ function SyncedLyricLine({ line, active, onLayout }: { line: string; active: boo
     return () => animation.stop();
   }, [active, progress]);
 
-  return <View onLayout={onLayout} style={styles.syncedLyricRow}><Animated.Text style={[styles.syncedLyricText, { color: progress.interpolate({ inputRange: [0, 1], outputRange: ['#999999', '#000000'] }), opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }]}>{line || ' '}</Animated.Text></View>;
+  return <View onLayout={onLayout} style={styles.syncedLyricRow}><Animated.Text style={[styles.syncedLyricText, { color: progress.interpolate({ inputRange: [0, 1], outputRange: ['#999999', '#000000'] }), fontSize: progress.interpolate({ inputRange: [0, 1], outputRange: [18, 22] }), opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }]}>{line || ' '}</Animated.Text></View>;
 }
 
 const styles = StyleSheet.create({
