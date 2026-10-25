@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { requestNotificationPermissionsAsync, setAudioModeAsync, useAudioPlaylist, useAudioPlaylistStatus } from 'expo-audio';
-import { Directory, File } from 'expo-file-system';
+import { File } from 'expo-file-system';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,17 +20,15 @@ import { FolderDialogs } from './components/FolderDialogs';
 import { moveUpcoming, upcomingFrom } from './features/playback/queueOrder';
 import { buildQueue, restorePlaybackMode, type PlaybackMode } from './features/playback/playbackOrder';
 import { APP_VERSION } from './config/appVersion';
-import type { Folder, LibrarySnapshot, RepeatMode, SavedPlayback, Track, TrackMetadata } from './types/domain';
+import type { Folder, RepeatMode, SavedPlayback, Track, TrackMetadata } from './types/domain';
 import { isFolder, isLibrarySnapshot, isSavedPlayback } from './services/libraryValidation';
-import { scanFolder, scanFolders } from './services/libraryScanner';
 import { fallbackMetadata, loadEmbeddedTrackDetails, materializeArtwork, pruneArtworkCache, rememberCacheValue } from './services/trackMetadata';
 import { activateLockScreen, deactivateLockScreen, updateLockScreen } from './services/mediaControls';
 import { styles } from './styles/appStyles';
 import { PlayerScreen } from './components/player/PlayerScreen';
 import { useScreenNavigation } from './hooks/useScreenNavigation';
+import { FOLDERS_KEY, LIBRARY_KEY, useLibraryState } from './features/library/useLibraryState';
 
-const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
-const LIBRARY_KEY = 'mp3fy.library.v1';
 const PLAYBACK_KEY = 'mp3fy.playback.v1';
 const SHUFFLE_HISTORY_KEY = 'mp3fy.shuffleHistory.v1';
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
@@ -47,8 +45,6 @@ function Mp3fyApp() {
   const artworkCache = useRef(new Map<string, string | null>()).current;
   const metadataCache = useRef(new Map<string, TrackMetadata>()).current;
   const artworkRequest = useRef(0);
-  const [folders, setFolders] = useState<Folder[]>([]);
-  const [tracks, setTracks] = useState<Track[]>([]);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [currentMetadata, setCurrentMetadata] = useState<TrackMetadata | null>(null);
   const [currentArtwork, setCurrentArtwork] = useState<string | null>(null);
@@ -57,16 +53,14 @@ function Mp3fyApp() {
   const [queueIndex, setQueueIndex] = useState(-1);
   const [mode, setMode] = useState<PlaybackMode>('folder');
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
-  const [isScanning, setIsScanning] = useState(false);
-  const [notice, setNotice] = useState('Select a folder to begin.');
   const [progressWidth, setProgressWidth] = useState(0);
   const [folderActions, setFolderActions] = useState<Folder | null>(null);
   const [folderToConfirm, setFolderToConfirm] = useState<Folder | null>(null);
-  const [scanningFolderUris, setScanningFolderUris] = useState<Set<string>>(new Set());
   const [isLibraryReady, setIsLibraryReady] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
+  const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision, libraryRefreshTimer } = useLibraryState({ isInitialized });
   const lockScreenTrackUri = useRef<string | null>(null);
   const pendingRestorePosition = useRef<number | null>(null);
   const latestPlayback = useRef<SavedPlayback | null>(null);
@@ -74,9 +68,6 @@ function Mp3fyApp() {
   const storageWrite = useRef<Promise<void>>(Promise.resolve());
   const shuffleHistory = useRef(new Map<string, string[]>());
   const shuffleHistoryWrite = useRef<Promise<void>>(Promise.resolve());
-  const libraryStorageWrite = useRef<Promise<void>>(Promise.resolve());
-  const libraryRevision = useRef(0);
-  const libraryRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { tracker, observePlayback } = useWrappedTracking({
     player,
@@ -151,27 +142,6 @@ function Mp3fyApp() {
     const metadata = metadataCache.get(track.uri) ?? fallbackMetadata(track);
     return { uri: track.uri, title: metadata.title, artist: metadata.artist };
   }), [currentMetadata, metadataCache, upcomingTracks]);
-
-  useEffect(() => {
-    if (!isInitialized) return;
-    const serialized = JSON.stringify({ folders, tracks } satisfies LibrarySnapshot);
-    libraryStorageWrite.current = libraryStorageWrite.current.catch(() => undefined)
-      .then(() => AsyncStorage.setItem(LIBRARY_KEY, serialized));
-  }, [folders, tracks, isInitialized]);
-
-  const rescan = useCallback(async (nextFolders: Folder[]) => {
-    const revision = libraryRevision.current;
-    setIsScanning(true);
-    const scanResult = await scanFolders(nextFolders);
-    if (revision === libraryRevision.current) {
-      setFolders(scanResult.folders);
-      setTracks(scanResult.tracks);
-      setNotice(scanResult.tracks.length ? `${scanResult.tracks.length} MP3 file${scanResult.tracks.length === 1 ? '' : 's'} found.` : 'No MP3 files found in the selected folders.');
-    }
-    setIsScanning(false);
-    return scanResult.tracks;
-  }, []);
-
 
   useEffect(() => {
     if (player.currentIndex !== status.currentIndex) return;
@@ -566,39 +536,6 @@ function Mp3fyApp() {
     if (!currentTrack || !upcomingTracks.length) return;
     if (replaceQueueWithoutInterrupt([currentTrack], 0, mode, 'one')) setRepeatMode('one');
   }, [currentTrack, mode, replaceQueueWithoutInterrupt, upcomingTracks.length]);
-
-  const addFolder = useCallback(async () => {
-    setNotice('Selecting a folder.');
-    let scanningUri: string | null = null;
-    try {
-      const selectedDirectory = await Directory.pickDirectoryAsync();
-      const nextFolder: Folder = { name: selectedDirectory.name, uri: selectedDirectory.uri };
-      if (folders.some((folder) => folder.uri === nextFolder.uri)) {
-        setNotice('That folder is already selected.');
-        return;
-      }
-      const nextFolders = [...folders, nextFolder];
-      await AsyncStorage.setItem(FOLDERS_KEY, JSON.stringify(nextFolders));
-      libraryRevision.current += 1;
-      scanningUri = nextFolder.uri;
-      setFolders((existing) => [...existing, nextFolder]);
-      setScanningFolderUris((existing) => new Set(existing).add(nextFolder.uri));
-      const scanResult = await scanFolder(nextFolder);
-      setFolders((existing) => existing.map((folder) => folder.uri === nextFolder.uri ? scanResult.folder : folder));
-      setTracks((existing) => [...existing.filter((track) => track.folderUri !== nextFolder.uri), ...scanResult.tracks].sort((a, b) => `${a.folderName}/${a.name}`.localeCompare(`${b.folderName}/${b.name}`)));
-      setNotice(`${scanResult.tracks.length} MP3 file${scanResult.tracks.length === 1 ? '' : 's'} found in ${nextFolder.name}.`);
-    } catch {
-      setNotice('Folder selection was cancelled or unavailable.');
-    } finally {
-      if (scanningUri) {
-        setScanningFolderUris((existing) => {
-          const next = new Set(existing);
-          next.delete(scanningUri as string);
-          return next;
-        });
-      }
-    }
-  }, [folders]);
 
   const removeFolder = useCallback(async (folder: Folder) => {
     setNotice(`Removing ${folder.name}.`);
