@@ -30,6 +30,7 @@
     "web": "expo start --web",
     "test:wrapped": "node --experimental-sqlite --test tests/wrappedTracker.test.cjs tests/wrappedStore.test.cjs tests/wrappedBackup.test.cjs",
     "test:queue": "node --test tests/queueOrder.test.cjs",
+    "test:order": "node --test tests/playbackOrder.test.cjs",
     "postinstall": "patch-package"
   },
   "private": true

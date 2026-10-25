@@ -6,11 +6,15 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 ## Current status
 
-The current playable build includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, shuffle, sequential order, repeat-folder, repeat-one, an editable playing queue, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during folder operations. It restores the last song, folder, playback position, and queue after reopening, showing the folders home screen with the mini player at the bottom, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected. mp3fy Wrapped shows listening time and top artists and songs for a day, week, month, year, or all time.
+The current source includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, folder filename order, song title order, shuffle, repeat-folder, repeat-one, an editable playing queue, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during folder operations. It restores the last song, folder, playback position, and queue after reopening, showing the folders home screen with the mini player at the bottom, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected. mp3fy Wrapped shows listening time and top artists and songs for a day, week, month, year, or all time.
 
 The folder list, folder artwork locations, and discovered track list are saved in app storage. On later launches, the saved library appears as soon as it is read; a scan then refreshes it for files added or removed since the last launch. Adding or removing a folder also updates the saved library. The first launch after upgrading from an older build still needs one full scan to create this snapshot.
 
-Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. Search matches titles, artists, and filenames. Sequential playback follows title order within the selected folder.
+Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. Search matches titles, artists, and filenames. The chosen playback order is independent of the song list's display order.
+
+## Playback order
+
+Starting a song from a folder selects **A-Z**, which follows MP3 filename order within that folder. For filenames such as `Artist - Song.mp3`, this groups songs by artist and sorts the artists alphabetically. Tap the order control to cycle through **A-Z → a-z → shuffle → A-Z**. **a-z** sorts by the displayed song title, using ID3 titles already loaded by the player and filename-derived titles otherwise, regardless of the artist prefix. Shuffle randomizes the remaining songs in that folder. When at least two other songs are available, returning to shuffle avoids repeating the previous upcoming order, even after switching modes or reopening the app. Restoring an existing playback session preserves its selected mode; previously saved sequential playback is restored as **a-z**.
 
 ## Playing queue
 
@@ -38,7 +42,7 @@ Wrapped can also keep two backup files in a shared folder chosen from the Wrappe
 4. The user can add additional directories from internal storage or an SD card.
 5. The app recursively scans the selected directories and displays the MP3 files it finds.
 6. Tapping a track starts local playback.
-7. Playback can shuffle or follow filename order within the current folder, repeat the folder or current track, seek within a track, and move backward or forward through the queue.
+7. Playback can follow filename order, song title order, or shuffle within the current folder; repeat the folder or current track; seek within a track; and move backward or forward through the queue.
 
 Embedded album artwork in supported MP3 ID3 tags is extracted to the app cache and shown in the player and media controls when available. When present, the full-screen player uses the embedded ID3 title and contributing artist as its primary text, with album and track number shown as compact secondary metadata. Filename-derived title and artist text are used when tags are unavailable.
 

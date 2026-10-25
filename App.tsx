@@ -28,10 +28,12 @@ import { ListeningTracker } from './wrappedTracker';
 import { WrappedScreen } from './WrappedScreen';
 import { QueueScreen, type QueueRow } from './QueueScreen';
 import { moveUpcoming, upcomingFrom } from './queueOrder';
+import { buildQueue, nextPlaybackMode, restorePlaybackMode, titleAndArtistFromFilename, type PlaybackMode } from './playbackOrder';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const LIBRARY_KEY = 'mp3fy.library.v1';
 const PLAYBACK_KEY = 'mp3fy.playback.v1';
+const SHUFFLE_HISTORY_KEY = 'mp3fy.shuffleHistory.v1';
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const MARQUEE_FADE_WIDTH = 28;
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 1000;
@@ -45,13 +47,12 @@ type Folder = { name: string; uri: string; imageUri?: string | null };
 type Track = { folderName: string; folderUri: string; name: string; uri: string };
 type LibrarySnapshot = { folders: Folder[]; tracks: Track[] };
 type TrackMetadata = { title: string; artist: string; album: string; trackNumber: string };
-type PlaybackMode = 'shuffle' | 'sequential';
 type RepeatMode = 'all' | 'one';
 type SavedPlayback = {
   track: Track;
   queueUris: string[];
   currentTime: number;
-  mode: PlaybackMode;
+  mode: PlaybackMode | 'sequential';
   repeatMode: RepeatMode;
   standalone: boolean;
 };
@@ -64,7 +65,7 @@ function isSavedPlayback(value: unknown): value is SavedPlayback {
     && typeof track.folderUri === 'string' && typeof track.folderName === 'string'
     && Array.isArray(saved.queueUris) && saved.queueUris.every((uri) => typeof uri === 'string')
     && typeof saved.currentTime === 'number' && Number.isFinite(saved.currentTime) && saved.currentTime >= 0
-    && (saved.mode === 'shuffle' || saved.mode === 'sequential')
+    && (saved.mode === 'folder' || saved.mode === 'title' || saved.mode === 'shuffle' || saved.mode === 'sequential')
     && (saved.repeatMode === 'all' || saved.repeatMode === 'one')
     && typeof saved.standalone === 'boolean');
 }
@@ -175,41 +176,13 @@ async function scanFolders(folders: Folder[]): Promise<{ folders: Folder[]; trac
   return { folders: results.map((result) => result.folder), tracks };
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const result = [...items];
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
-  }
-  return result;
-}
-
-function buildQueue(tracks: Track[], selectedTrack: Track, mode: PlaybackMode) {
-  const scopedTracks = tracks.filter((track) => track.folderUri === selectedTrack.folderUri);
-  if (mode === 'shuffle') {
-    return { queue: [selectedTrack, ...shuffle(scopedTracks.filter((track) => track.uri !== selectedTrack.uri))], index: 0 };
-  }
-  const queue = [...scopedTracks].sort(compareTracksByTitle);
-  return { queue, index: Math.max(0, queue.findIndex((track) => track.uri === selectedTrack.uri)) };
-}
-
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return '00:00';
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
 
 function fallbackMetadata(track: Track): TrackMetadata {
-  const baseName = track.name.replace(/\.mp3$/i, '').trim();
-  const separator = baseName.indexOf(' - ');
-  if (separator > 0) {
-    return { title: baseName.slice(separator + 3).trim() || baseName, artist: baseName.slice(0, separator).trim(), album: '', trackNumber: '' };
-  }
-  return { title: baseName, artist: '', album: '', trackNumber: '' };
-}
-
-function compareTracksByTitle(a: Track, b: Track): number {
-  const titleOrder = fallbackMetadata(a).title.localeCompare(fallbackMetadata(b).title);
-  return titleOrder || a.name.localeCompare(b.name);
+  return { ...titleAndArtistFromFilename(track.name), album: '', trackNumber: '' };
 }
 
 function readAscii(bytes: Uint8Array, start: number, length: number): string {
@@ -537,7 +510,7 @@ function Mp3fyApp() {
   const [isArtworkLoading, setIsArtworkLoading] = useState(false);
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
-  const [mode, setMode] = useState<PlaybackMode>('shuffle');
+  const [mode, setMode] = useState<PlaybackMode>('folder');
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
   const [screen, setScreen] = useState<Screen>({ kind: 'folders' });
   const [isScanning, setIsScanning] = useState(false);
@@ -553,6 +526,8 @@ function Mp3fyApp() {
   const latestPlayback = useRef<SavedPlayback | null>(null);
   const lastSavedPlayback = useRef<string | null>(null);
   const storageWrite = useRef<Promise<void>>(Promise.resolve());
+  const shuffleHistory = useRef(new Map<string, string[]>());
+  const shuffleHistoryWrite = useRef<Promise<void>>(Promise.resolve());
   const libraryStorageWrite = useRef<Promise<void>>(Promise.resolve());
   const libraryRevision = useRef(0);
   const libraryRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -575,6 +550,17 @@ function Mp3fyApp() {
       ? AsyncStorage.setItem(PLAYBACK_KEY, serialized)
       : AsyncStorage.removeItem(PLAYBACK_KEY));
   }, []);
+
+  const rememberShuffle = useCallback((folderUri: string, shuffledQueue: Track[]) => {
+    shuffleHistory.current.set(folderUri, shuffledQueue.map((track) => track.uri));
+    const serialized = JSON.stringify([...shuffleHistory.current.entries()]);
+    shuffleHistoryWrite.current = shuffleHistoryWrite.current.catch(() => undefined)
+      .then(() => AsyncStorage.setItem(SHUFFLE_HISTORY_KEY, serialized));
+  }, []);
+
+  const queueTitleFor = useCallback((track: Track) => track.uri === currentTrack?.uri
+    ? currentMetadata?.title ?? metadataCache.get(track.uri)?.title ?? fallbackMetadata(track).title
+    : metadataCache.get(track.uri)?.title ?? fallbackMetadata(track).title, [currentMetadata, currentTrack?.uri, metadataCache]);
 
   const trackCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -744,10 +730,19 @@ function Mp3fyApp() {
     const restore = async () => {
       let refreshFolders: Folder[] | null = null;
       try {
-        const values = await AsyncStorage.multiGet([FOLDERS_KEY, PLAYBACK_KEY, LIBRARY_KEY]);
+        const values = await AsyncStorage.multiGet([FOLDERS_KEY, PLAYBACK_KEY, LIBRARY_KEY, SHUFFLE_HISTORY_KEY]);
         const storedFolders = values[0][1];
         const storedPlayback = values[1][1];
         const storedLibrary = values[2][1];
+        const storedShuffleHistory = values[3][1];
+        if (storedShuffleHistory) {
+          try {
+            const entries: unknown = JSON.parse(storedShuffleHistory);
+            if (Array.isArray(entries)) entries.forEach((entry) => {
+              if (Array.isArray(entry) && typeof entry[0] === 'string' && Array.isArray(entry[1]) && entry[1].every((uri: unknown) => typeof uri === 'string')) shuffleHistory.current.set(entry[0], entry[1]);
+            });
+          } catch { /* A damaged shuffle history can be rebuilt. */ }
+        }
         let libraryTracks: Track[] = [];
         if (storedFolders) {
           try {
@@ -782,6 +777,7 @@ function Mp3fyApp() {
           savePlayback(null);
           return;
         }
+        const restoredMode = restorePlaybackMode(saved.mode);
         const knownTracks = new Map(libraryTracks.map((track) => [track.uri, track]));
         if (saved.standalone && !knownTracks.has(saved.track.uri)) {
           try {
@@ -799,7 +795,8 @@ function Mp3fyApp() {
         const restoredQueue = saved.queueUris.map((uri) => knownTracks.get(uri)).filter((track): track is Track => Boolean(track));
         const nextQueue = restoredQueue.some((track) => track.uri === selectedTrack.uri)
           ? restoredQueue
-          : buildQueue(libraryTracks.length ? libraryTracks : [selectedTrack], selectedTrack, saved.mode).queue;
+          : buildQueue(libraryTracks.length ? libraryTracks : [selectedTrack], selectedTrack, restoredMode, shuffleHistory.current.get(selectedTrack.folderUri)).queue;
+        if (restoredMode === 'shuffle') rememberShuffle(selectedTrack.folderUri, nextQueue);
         const nextIndex = nextQueue.findIndex((track) => track.uri === selectedTrack.uri);
         player.clear();
         nextQueue.forEach((track) => player.add({ uri: track.uri }));
@@ -807,7 +804,7 @@ function Mp3fyApp() {
         player.skipTo(nextIndex);
         setQueue(nextQueue);
         setQueueIndex(nextIndex);
-        setMode(saved.mode);
+        setMode(restoredMode);
         setRepeatMode(saved.repeatMode);
         setCurrentTrack(selectedTrack);
         setCurrentMetadata(fallbackMetadata(selectedTrack));
@@ -847,7 +844,7 @@ function Mp3fyApp() {
       if (restoreTimer.current) clearTimeout(restoreTimer.current);
       if (libraryRefreshTimer.current) clearTimeout(libraryRefreshTimer.current);
     };
-  }, [loadArtwork, player, rescan, savePlayback]);
+  }, [loadArtwork, player, rememberShuffle, rescan, savePlayback]);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -877,7 +874,7 @@ function Mp3fyApp() {
     if (pendingRestorePosition.current === null) savePlayback(playback);
   }, [currentTrack, folders, isInitialized, mode, player, queue, repeatMode, savePlayback, status.currentIndex, status.currentTime]);
 
-  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, nextRepeatMode: RepeatMode = repeatMode) => {
+  const startPlayback = useCallback((nextQueue: Track[], nextIndex: number, nextRepeatMode: RepeatMode = repeatMode, nextMode: PlaybackMode = mode) => {
     const nextTrack = nextQueue[nextIndex];
     if (!nextTrack) return;
     observePlayback();
@@ -893,7 +890,7 @@ function Mp3fyApp() {
       track: nextTrack,
       queueUris: nextQueue.map((track) => track.uri),
       currentTime: 0,
-      mode,
+      mode: nextMode,
       repeatMode: nextRepeatMode,
       standalone: !folders.some((folder) => folder.uri === nextTrack.folderUri),
     };
@@ -962,10 +959,11 @@ function Mp3fyApp() {
   }, [player, repeatMode]);
 
   const playTrack = useCallback((track: Track) => {
-    const nextPlayback = buildQueue(tracks, track, mode);
-    startPlayback(nextPlayback.queue, nextPlayback.index);
+    const nextPlayback = buildQueue(tracks, track, 'folder');
+    setMode('folder');
+    startPlayback(nextPlayback.queue, nextPlayback.index, repeatMode, 'folder');
     setScreen({ kind: 'player', returnTo: 'songs' });
-  }, [mode, startPlayback, tracks]);
+  }, [repeatMode, startPlayback, tracks]);
 
   const addSong = useCallback(async () => {
     setNotice('Selecting a song.');
@@ -1023,11 +1021,16 @@ function Mp3fyApp() {
   }, [observePlayback, player, queue, queueIndex, status.currentTime, tracker]);
 
   const updateQueuePreference = useCallback((nextMode: PlaybackMode) => {
-    setMode(nextMode);
-    if (!currentTrack) return;
-    const nextPlayback = buildQueue(tracks, currentTrack, nextMode);
-    replaceQueueWithoutInterrupt(nextPlayback.queue, nextPlayback.index, nextMode);
-  }, [currentTrack, replaceQueueWithoutInterrupt, tracks]);
+    if (!currentTrack) {
+      setMode(nextMode);
+      return;
+    }
+    const nextPlayback = buildQueue(tracks, currentTrack, nextMode, shuffleHistory.current.get(currentTrack.folderUri), Math.random, queueTitleFor);
+    if (replaceQueueWithoutInterrupt(nextPlayback.queue, nextPlayback.index, nextMode)) {
+      setMode(nextMode);
+      if (nextMode === 'shuffle') rememberShuffle(currentTrack.folderUri, nextPlayback.queue);
+    }
+  }, [currentTrack, queueTitleFor, rememberShuffle, replaceQueueWithoutInterrupt, tracks]);
 
   const reorderUpcoming = useCallback((from: number, to: number) => {
     if (!currentTrack || from < 0 || to < 0 || from >= upcomingTracks.length || to >= upcomingTracks.length) return;
@@ -1311,7 +1314,7 @@ const MiniPlayer = memo(function MiniPlayer({ track, metadata, artwork, artworkL
   return <View style={styles.miniPlayer}><Pressable onPress={onOpen} style={styles.miniMain}><AlbumArt label={metadata.title} size={52} uri={artwork} loading={artworkLoading} /><View style={styles.miniCopy}><Text style={styles.miniLabel}>NOW PLAYING</Text><MarqueeText style={styles.miniTitleViewport} text={metadata.title} textStyle={styles.miniTitle} /><MarqueeText style={styles.miniArtistViewport} text={metadata.artist || track.folderName} textStyle={styles.miniFolder} /></View></Pressable><Pressable accessibilityRole="button" onPress={onTogglePlay} style={styles.miniButton}><Text style={styles.miniButtonText}>{playing ? '||' : '>'}</Text></Pressable><Pressable accessibilityRole="button" onPress={onNext} style={styles.miniButton}><Text style={styles.miniButtonText}>&gt;|</Text></Pressable></View>;
 });
 
-type TransportIconKind = 'shuffle' | 'order' | 'repeatAll' | 'repeatOne';
+type TransportIconKind = 'shuffle' | 'repeatAll' | 'repeatOne';
 
 function TransportGlyph({ kind, active }: { kind: TransportIconKind; active: boolean }) {
   const color = active ? '#FFFFFF' : '#000000';
@@ -1321,16 +1324,18 @@ function TransportGlyph({ kind, active }: { kind: TransportIconKind; active: boo
   }
   const bar = (left: number, top: number, width: number) => <View style={[styles.glyphBar, { backgroundColor: color, left, top, width }]} />;
   const head = (top: number) => <View style={[styles.glyphArrowHead, { borderLeftColor: color, top }]} />;
-  if (kind === 'shuffle') {
-    // Two lines that cross over each other, both ending in arrows.
-    return <View style={styles.smallIconFrame}>{bar(0, 5, 5)}{bar(0, 13, 5)}<View style={[styles.glyphBar, { backgroundColor: color, left: 3.3, top: 9, width: 11.3, transform: [{ rotate: '45deg' }] }]} /><View style={[styles.glyphBar, { backgroundColor: color, left: 3.3, top: 9, width: 11.3, transform: [{ rotate: '-45deg' }] }]} />{bar(13, 5, 3)}{bar(13, 13, 3)}{head(3)}{head(11)}</View>;
-  }
-  // Regular order: two straight parallel arrows that never cross.
-  return <View style={styles.smallIconFrame}>{bar(0, 5, 16)}{bar(0, 13, 16)}{head(3)}{head(11)}</View>;
+  // Two lines that cross over each other, both ending in arrows.
+  return <View style={styles.smallIconFrame}>{bar(0, 5, 5)}{bar(0, 13, 5)}<View style={[styles.glyphBar, { backgroundColor: color, left: 3.3, top: 9, width: 11.3, transform: [{ rotate: '45deg' }] }]} /><View style={[styles.glyphBar, { backgroundColor: color, left: 3.3, top: 9, width: 11.3, transform: [{ rotate: '-45deg' }] }]} />{bar(13, 5, 3)}{bar(13, 13, 3)}{head(3)}{head(11)}</View>;
 }
 
 function IconButton({ icon, accessibilityLabel, onPress, active = false, transport = false }: { icon: TransportIconKind; accessibilityLabel: string; onPress: () => void; active?: boolean; transport?: boolean }) {
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.iconButton, transport && styles.transportSideButton, active && styles.activeIconButton, pressed && styles.pressed]}><TransportGlyph kind={icon} active={active} /></Pressable>;
+}
+
+function PlaybackOrderButton({ mode, onPress }: { mode: PlaybackMode; onPress: () => void }) {
+  const shuffled = mode === 'shuffle';
+  const accessibilityLabel = mode === 'folder' ? 'Folder filename order. Switch to song title order' : mode === 'title' ? 'Song title order. Switch to shuffle' : 'Shuffle. Switch to folder filename order';
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.iconButton, styles.transportSideButton, shuffled && styles.activeIconButton, pressed && styles.pressed]}>{shuffled ? <TransportGlyph kind="shuffle" active /> : <Text style={styles.orderModeText}>{mode === 'folder' ? 'A-Z' : 'a-z'}</Text>}</Pressable>;
 }
 
 function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenWrapped, onOpenQueue }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenWrapped: () => void; onOpenQueue: () => void }) {
@@ -1346,7 +1351,7 @@ function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progre
       </View> : null}
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
       <View style={styles.timeRow}><Text style={styles.timeText}>{formatTime(status.currentTime)}</Text><Text style={styles.timeText}>{formatTime(status.duration)}</Text></View>
-      <View style={styles.transportRow}><IconButton icon={mode === 'shuffle' ? 'shuffle' : 'order'} transport accessibilityLabel={mode === 'shuffle' ? 'Shuffle on. Switch to regular order' : 'Shuffle off. Switch to shuffle'} active={mode === 'shuffle'} onPress={() => onModeChange(mode === 'shuffle' ? 'sequential' : 'shuffle')} /><SmallButton label="|<" transport onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} transport onPress={onTogglePlay} /><SmallButton label="|>" transport onPress={onNext} /><IconButton icon={repeatMode === 'one' ? 'repeatOne' : 'repeatAll'} transport accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
+      <View style={styles.transportRow}><PlaybackOrderButton mode={mode} onPress={() => onModeChange(nextPlaybackMode(mode))} /><SmallButton label="|<" transport onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} transport onPress={onTogglePlay} /><SmallButton label="|>" transport onPress={onNext} /><IconButton icon={repeatMode === 'one' ? 'repeatOne' : 'repeatAll'} transport accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
     </ScrollView>
   );
 }
@@ -1439,6 +1444,7 @@ const styles = StyleSheet.create({
   transportSideButton: { flex: 1, minWidth: 0, width: 'auto' },
   transportMainButton: { flex: 2.25, minWidth: 0, paddingHorizontal: 0 },
   activeIconButton: { backgroundColor: '#000000' },
+  orderModeText: { color: '#000000', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
   iconFrame: { alignItems: 'center', height: 32, justifyContent: 'center', width: 32 },
   glyphText: { fontSize: 27, fontWeight: '400', includeFontPadding: false, lineHeight: 28, textAlign: 'center', width: 32 },
   smallIconFrame: { height: 18, width: 20 },
