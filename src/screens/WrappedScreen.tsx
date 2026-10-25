@@ -1,9 +1,6 @@
-import * as DocumentPicker from 'expo-document-picker';
-import { readAsStringAsync } from 'expo-file-system/legacy';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { chooseWrappedBackupFolder, initializeWrappedBackup, isWrappedBackupEnabled, saveWrappedBackupNow } from '../features/wrapped/wrappedBackup';
-import { getAvailableYears, getWrappedSummary, hasWrappedHistory, inspectWrappedBackup, localDay, weekStart, type WrappedPeriod, type WrappedRank, type WrappedSummary } from '../features/wrapped/wrappedStore';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { getAvailableYears, getWrappedSummary, localDay, weekStart, type WrappedPeriod, type WrappedRank, type WrappedSummary } from '../features/wrapped/wrappedStore';
 import { APP_VERSION } from '../config/appVersion';
 
 const TABS: { key: WrappedPeriod; label: string }[] = [
@@ -57,11 +54,9 @@ function RankedList({ title, entries, metric }: { title: string; entries: Wrappe
   );
 }
 
-export function WrappedScreen({ revision, onBack, onPrepareBackup, onRestoreBackup }: {
+export function WrappedScreen({ revision, onBack }: {
   revision: number;
   onBack: () => void;
-  onPrepareBackup: () => Promise<void>;
-  onRestoreBackup: (contents: string) => Promise<void>;
 }) {
   const [period, setPeriod] = useState<WrappedPeriod>('year');
   const [today, setToday] = useState(() => localDay(new Date()));
@@ -71,9 +66,6 @@ export function WrappedScreen({ revision, onBack, onPrepareBackup, onRestoreBack
   const [loadedKey, setLoadedKey] = useState('');
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [backupEnabled, setBackupEnabled] = useState(isWrappedBackupEnabled());
-  const [backupBusy, setBackupBusy] = useState(false);
-  const [backupMessage, setBackupMessage] = useState('');
   const key = period === 'day' ? today
     : period === 'week' ? weekStart(today)
       : period === 'month' ? today.slice(0, 7)
@@ -84,82 +76,6 @@ export function WrappedScreen({ revision, onBack, onPrepareBackup, onRestoreBack
     const timer = setInterval(() => setToday(localDay(new Date())), 60_000);
     return () => clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    let live = true;
-    void initializeWrappedBackup().then((enabled) => {
-      if (live) setBackupEnabled(enabled);
-    }).catch(() => undefined);
-    return () => { live = false; };
-  }, []);
-
-  const chooseBackupFolder = async () => {
-    setBackupBusy(true);
-    setBackupMessage('');
-    try {
-      await onPrepareBackup();
-      const enabled = await chooseWrappedBackupFolder();
-      if (enabled) {
-        setBackupEnabled(true);
-        setBackupMessage('Automatic backup is on. Two copies are saved in your chosen folder.');
-      }
-    } catch {
-      setBackupMessage('Could not set up the backup folder. Please try again.');
-    } finally {
-      setBackupBusy(false);
-    }
-  };
-
-  const saveBackup = async () => {
-    setBackupBusy(true);
-    setBackupMessage('');
-    try {
-      await onPrepareBackup();
-      const saved = await saveWrappedBackupNow();
-      setBackupMessage(saved ? 'Wrapped backup saved.' : 'Choose a backup folder first.');
-    } catch {
-      setBackupMessage('Could not save the backup. Check that the folder is still available.');
-    } finally {
-      setBackupBusy(false);
-    }
-  };
-
-  const finishRestore = async (contents: string) => {
-    setBackupBusy(true);
-    setBackupMessage('');
-    try {
-      await onRestoreBackup(contents);
-      setRetry((value) => value + 1);
-      setBackupMessage('Wrapped history restored. Re-add your music folders, then choose a backup folder again to keep automatic backups on.');
-    } catch {
-      setBackupMessage('Could not restore this backup. Your existing history is safe.');
-    } finally {
-      setBackupBusy(false);
-    }
-  };
-
-  const restoreBackup = async () => {
-    setBackupBusy(true);
-    setBackupMessage('');
-    try {
-      const picked = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
-      if (picked.canceled || !picked.assets.length) return;
-      const contents = await readAsStringAsync(picked.assets[0].uri);
-      const info = await inspectWrappedBackup(contents);
-      if (await hasWrappedHistory()) {
-        Alert.alert('Replace Wrapped history?', `This backup contains ${info.songCount} songs. Restoring it replaces the listening history currently in mp3fy.`, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Restore', onPress: () => { void finishRestore(contents); } },
-        ]);
-      } else {
-        await finishRestore(contents);
-      }
-    } catch {
-      setBackupMessage('That is not a valid mp3fy Wrapped backup. Try the previous copy if you have one.');
-    } finally {
-      setBackupBusy(false);
-    }
-  };
 
   useEffect(() => {
     let live = true;
@@ -230,17 +146,6 @@ export function WrappedScreen({ revision, onBack, onPrepareBackup, onRestoreBack
         </View> : null}
       </>}
 
-      <View style={styles.backupSection}>
-        <Text style={styles.sectionEyebrow}>KEEP YOUR HISTORY</Text>
-        <Text style={styles.sectionTitle}>Wrapped backup</Text>
-        <Text style={styles.backupCopy}>Save two small backup files in a folder on your phone. They remain there if you uninstall mp3fy. After reinstalling, choose a backup file here to restore your stats.</Text>
-        <Text style={styles.backupState}>{backupEnabled ? 'AUTOMATIC BACKUP ON' : 'BACKUP FOLDER NOT SET'}</Text>
-        <Pressable accessibilityRole="button" disabled={backupBusy} onPress={() => { void chooseBackupFolder(); }} style={[styles.backupButton, backupBusy && styles.disabled]}><Text style={styles.backupButtonText}>{backupEnabled ? 'CHANGE BACKUP FOLDER' : 'CHOOSE BACKUP FOLDER'}</Text></Pressable>
-        {backupEnabled ? <Pressable accessibilityRole="button" disabled={backupBusy} onPress={() => { void saveBackup(); }} style={[styles.backupButton, backupBusy && styles.disabled]}><Text style={styles.backupButtonText}>SAVE BACKUP NOW</Text></Pressable> : null}
-        <Pressable accessibilityRole="button" disabled={backupBusy} onPress={() => { void restoreBackup(); }} style={[styles.backupButton, styles.backupButtonSecondary, backupBusy && styles.disabled]}><Text style={styles.backupButtonSecondaryText}>RESTORE BACKUP</Text></Pressable>
-        {backupBusy ? <ActivityIndicator color="#000000" style={styles.backupBusy} /> : null}
-        {backupMessage ? <Text style={styles.backupMessage}>{backupMessage}</Text> : null}
-      </View>
     </ScrollView>
   );
 }
@@ -296,13 +201,4 @@ const styles = StyleSheet.create({
   milestoneLabel: { color: '#000000', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   milestoneDetail: { color: '#666666', fontSize: 10, marginTop: 4 },
   milestoneValue: { color: '#000000', fontSize: 16, fontWeight: '700', marginLeft: 10 },
-  backupSection: { borderTopColor: '#000000', borderTopWidth: 1, marginTop: 36, paddingTop: 25 },
-  backupCopy: { color: '#555555', fontSize: 12, lineHeight: 18, marginBottom: 15 },
-  backupState: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1, marginBottom: 10 },
-  backupButton: { backgroundColor: '#000000', marginTop: 8, paddingHorizontal: 15, paddingVertical: 14 },
-  backupButtonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
-  backupButtonSecondary: { backgroundColor: '#FFFFFF', borderColor: '#000000', borderWidth: 1 },
-  backupButtonSecondaryText: { color: '#000000', fontSize: 11, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
-  backupBusy: { marginTop: 12 },
-  backupMessage: { color: '#333333', fontSize: 12, lineHeight: 17, marginTop: 12 },
 });

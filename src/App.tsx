@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
+  Pressable,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
-import { initializeWrappedStore, restoreWrappedBackup } from './features/wrapped/wrappedStore';
-import { noteWrappedHistoryChanged, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
+import { initializeWrappedStore } from './features/wrapped/wrappedStore';
+import { chooseWrappedBackupFolder, initializeWrappedBackup, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
 import { useWrappedTracking } from './features/wrapped/useWrappedTracking';
 import { WrappedScreen } from './screens/WrappedScreen';
 import { QueueScreen, type QueueRow } from './screens/QueueScreen';
@@ -52,6 +53,9 @@ function Mp3fyApp() {
   const [folderToConfirm, setFolderToConfirm] = useState<Folder | null>(null);
   const [isLibraryReady, setIsLibraryReady] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isWrappedBackupReady, setIsWrappedBackupReady] = useState(false);
+  const [isBackupSetupBusy, setIsBackupSetupBusy] = useState(true);
+  const [backupSetupMessage, setBackupSetupMessage] = useState('');
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
   const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision, libraryRefreshTimer } = useLibraryState({ isInitialized });
@@ -68,6 +72,44 @@ function Mp3fyApp() {
   });
   const { currentMetadata, setCurrentMetadata, currentArtwork, setCurrentArtwork, isArtworkLoading, setIsArtworkLoading, loadArtwork } = useTrackArtwork({ player, tracker, artworkCache, metadataCache });
   currentMetadataRef.current = currentMetadata;
+
+  const selectWrappedBackupFolder = useCallback(async () => {
+    setIsBackupSetupBusy(true);
+    setBackupSetupMessage('');
+    try {
+      const selected = await chooseWrappedBackupFolder();
+      if (selected) {
+        setIsWrappedBackupReady(true);
+        return;
+      }
+      setBackupSetupMessage('A backup folder is required to continue.');
+    } catch {
+      setBackupSetupMessage('That folder does not contain a valid mp3fy Wrapped backup, or it is unavailable.');
+    } finally {
+      setIsBackupSetupBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const setup = async () => {
+      try {
+        await initializeWrappedStore();
+        if (await initializeWrappedBackup()) {
+          if (mounted) {
+            setIsWrappedBackupReady(true);
+            setIsBackupSetupBusy(false);
+          }
+          return;
+        }
+      } catch {
+        // A fresh folder selection below can recover from a stale permission.
+      }
+      if (mounted) await selectWrappedBackupFolder();
+    };
+    void setup();
+    return () => { mounted = false; };
+  }, [selectWrappedBackupFolder]);
 
   const { screen, setScreen, openFolder, openPlayerFromMini, openQueue, closeQueue, openWrapped, closeWrapped } = useScreenNavigation({
     currentTrack,
@@ -250,31 +292,18 @@ function Mp3fyApp() {
     }
   }, [currentTrack, folders, observePlayback, player, savePlayback, screen, tracker]);
 
-  const prepareWrappedBackup = useCallback(async () => {
-    observePlayback();
-    await tracker.flush();
-  }, [observePlayback, tracker]);
-
-  const restoreWrappedHistory = useCallback(async (contents: string) => {
-    observePlayback();
-    player.pause();
-    await tracker.flush();
-    await restoreWrappedBackup(contents);
-    tracker.restart();
-    setWrappedRevision((revision) => revision + 1);
-    noteWrappedHistoryChanged();
-    void saveWrappedBackupNow().catch(() => undefined);
-  }, [observePlayback, player, tracker]);
-
-  if (!isLibraryReady) {
+  if (!isLibraryReady || !isWrappedBackupReady) {
     return (
       <>
         <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
         <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
           <View style={styles.container}>
             <View style={styles.startupLoading}>
-              <ActivityIndicator color="#000000" />
-              <Text style={styles.notice}>Loading library...</Text>
+              {!isLibraryReady || isBackupSetupBusy ? <ActivityIndicator color="#000000" /> : null}
+              <Text style={styles.title}>{isLibraryReady ? 'Choose a Wrapped backup folder' : 'Loading library...'}</Text>
+              {isLibraryReady ? <Text style={styles.description}>mp3fy keeps one required Wrapped backup file in this folder. Select the same folder after reinstalling to restore your listening history.</Text> : null}
+              {isLibraryReady && !isBackupSetupBusy ? <Pressable accessibilityRole="button" onPress={() => { void selectWrappedBackupFolder(); }} style={styles.button}><Text style={styles.buttonText}>SELECT BACKUP FOLDER</Text></Pressable> : null}
+              {backupSetupMessage ? <Text style={styles.notice}>{backupSetupMessage}</Text> : null}
             </View>
           </View>
         </SafeAreaView>
@@ -293,7 +322,7 @@ function Mp3fyApp() {
           ) : screen.kind === 'songs' && selectedFolder ? (
             <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} currentMetadata={currentMetadata} metadataCache={metadataCache} isScanning={isScanning} onPlayTrack={playTrack} onOpenQueue={openQueue} />
           ) : screen.kind === 'wrapped' ? (
-            <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} onPrepareBackup={prepareWrappedBackup} onRestoreBackup={restoreWrappedHistory} />
+            <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} />
           ) : screen.kind === 'queue' && queueCurrentRow ? (
             <QueueScreen current={queueCurrentRow} upcoming={upcomingRows} playing={status.playing} onBack={closeQueue} onMove={reorderUpcoming} onRemove={removeUpcoming} onClear={clearUpcoming} />
           ) : currentTrack ? (

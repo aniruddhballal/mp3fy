@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
-import { initializeWrappedBackup, noteWrappedHistoryChanged } from './wrappedBackup';
+import { noteWrappedHistoryChanged } from './wrappedBackup';
 import { initializeWrappedStore, recordListening } from './wrappedStore';
 import { ListeningTracker } from './wrappedTracker';
 import { fallbackMetadata } from '../../services/trackMetadata';
@@ -48,7 +48,6 @@ export function useWrappedTracking({ player, queue, currentTrack, currentMetadat
 
   useEffect(() => {
     void initializeWrappedStore().catch(() => undefined);
-    void initializeWrappedBackup().catch(() => undefined);
     const timer = setInterval(() => { void tracker.flush().catch(() => undefined); }, 5000);
     return () => {
       clearInterval(timer);
