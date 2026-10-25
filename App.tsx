@@ -663,7 +663,7 @@ function Mp3fyApp() {
       if (notificationsGranted && currentTrack && nextState !== 'unknown' && lockScreenTrackUri.current !== currentTrack.uri) {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
         lockScreenTrackUri.current = currentTrack.uri;
-        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: true, showSeekForward: true });
+        callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: false, showSeekForward: false });
       }
     });
     return () => subscription.remove();
@@ -674,7 +674,7 @@ function Mp3fyApp() {
     if (lockScreenTrackUri.current === currentTrack.uri) return;
     const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
     lockScreenTrackUri.current = currentTrack.uri;
-    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: true, showSeekForward: true });
+    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: false, showSeekForward: false });
   }, [artworkCache, currentMetadata, currentTrack?.uri, notificationsGranted, player]);
 
   useEffect(() => {
