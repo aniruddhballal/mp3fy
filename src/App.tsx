@@ -6,8 +6,6 @@ import {
   ActivityIndicator,
   AppState,
   BackHandler,
-  Modal,
-  Pressable,
   Text,
   View,
 } from 'react-native';
@@ -19,7 +17,7 @@ import { ListeningTracker } from './features/wrapped/wrappedTracker';
 import { WrappedScreen } from './screens/WrappedScreen';
 import { QueueScreen, type QueueRow } from './screens/QueueScreen';
 import { FoldersScreen, MiniPlayer, SongsScreen } from './screens/LibraryScreens';
-import { ActionButton, AlbumArt, MarqueeText, QueueButton, ScreenHeader, SmallButton } from './components/AppPrimitives';
+import { FolderDialogs } from './components/FolderDialogs';
 import { moveUpcoming, upcomingFrom } from './features/playback/queueOrder';
 import { buildQueue, restorePlaybackMode, type PlaybackMode } from './features/playback/playbackOrder';
 import { APP_VERSION } from './config/appVersion';
@@ -35,7 +33,6 @@ const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const LIBRARY_KEY = 'mp3fy.library.v1';
 const PLAYBACK_KEY = 'mp3fy.playback.v1';
 const SHUFFLE_HISTORY_KEY = 'mp3fy.shuffleHistory.v1';
-const MARQUEE_FADE_WIDTH = 28;
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
 const MAX_MEMORY_ARTWORK_ENTRIES = 32;
 const MAX_MEMORY_METADATA_ENTRIES = 128;
@@ -767,6 +764,7 @@ function Mp3fyApp() {
             </View>
           </View>
         </SafeAreaView>
+
       </>
     );
   }
@@ -792,29 +790,16 @@ function Mp3fyApp() {
         </View>
       </SafeAreaView>
 
-      <Modal animationType="fade" transparent visible={Boolean(folderActions)} onRequestClose={() => setFolderActions(null)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle} numberOfLines={2}>{folderActions?.name}</Text>
-            <ActionButton label="OPEN FOLDER" onPress={() => { if (folderActions) openFolder(folderActions); setFolderActions(null); }} />
-            <ActionButton label="REMOVE FOLDER" onPress={() => { setFolderToConfirm(folderActions); setFolderActions(null); }} secondary />
-            <ActionButton label="CANCEL" onPress={() => setFolderActions(null)} secondary />
-          </View>
-        </View>
-      </Modal>
-
-      <Modal animationType="fade" transparent visible={Boolean(folderToConfirm)} onRequestClose={() => setFolderToConfirm(null)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Remove this folder?</Text>
-            <Text style={styles.modalDescription}>{folderToConfirm?.name}</Text>
-            <ActionButton label="REMOVE FOLDER" onPress={() => { if (folderToConfirm) void removeFolder(folderToConfirm); setFolderToConfirm(null); }} />
-            <ActionButton label="CANCEL" onPress={() => setFolderToConfirm(null)} secondary />
-          </View>
-        </View>
-      </Modal>
+      <FolderDialogs
+        folderActions={folderActions}
+        folderToConfirm={folderToConfirm}
+        onCloseActions={() => setFolderActions(null)}
+        onOpenFolder={openFolder}
+        onRequestRemove={setFolderToConfirm}
+        onRemoveFolder={removeFolder}
+        onCloseConfirmation={() => setFolderToConfirm(null)}
+      />
     </>
   );
 }
-
 
