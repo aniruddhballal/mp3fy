@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
-  BackHandler,
   Text,
   View,
 } from 'react-native';
@@ -21,13 +20,14 @@ import { FolderDialogs } from './components/FolderDialogs';
 import { moveUpcoming, upcomingFrom } from './features/playback/queueOrder';
 import { buildQueue, restorePlaybackMode, type PlaybackMode } from './features/playback/playbackOrder';
 import { APP_VERSION } from './config/appVersion';
-import type { Folder, LibrarySnapshot, RepeatMode, SavedPlayback, Screen, Track, TrackMetadata } from './types/domain';
+import type { Folder, LibrarySnapshot, RepeatMode, SavedPlayback, Track, TrackMetadata } from './types/domain';
 import { isFolder, isLibrarySnapshot, isSavedPlayback } from './services/libraryValidation';
 import { scanFolder, scanFolders } from './services/libraryScanner';
 import { fallbackMetadata, loadEmbeddedTrackDetails, materializeArtwork, pruneArtworkCache, rememberCacheValue } from './services/trackMetadata';
 import { activateLockScreen, deactivateLockScreen, updateLockScreen } from './services/mediaControls';
 import { styles } from './styles/appStyles';
 import { PlayerScreen } from './components/player/PlayerScreen';
+import { useScreenNavigation } from './hooks/useScreenNavigation';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const LIBRARY_KEY = 'mp3fy.library.v1';
@@ -57,7 +57,6 @@ function Mp3fyApp() {
   const [queueIndex, setQueueIndex] = useState(-1);
   const [mode, setMode] = useState<PlaybackMode>('folder');
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('all');
-  const [screen, setScreen] = useState<Screen>({ kind: 'folders' });
   const [isScanning, setIsScanning] = useState(false);
   const [notice, setNotice] = useState('Select a folder to begin.');
   const [progressWidth, setProgressWidth] = useState(0);
@@ -88,6 +87,30 @@ function Mp3fyApp() {
     });
   }
   const tracker = listeningTracker.current;
+
+  const observePlayback = useCallback((currentTime = player.currentTime, playing = player.playing, buffering = player.isBuffering, duration = player.duration, index = player.currentIndex) => {
+    const track = queue[index] ?? currentTrack;
+    const metadata = track?.uri === currentTrack?.uri ? currentMetadata : track ? metadataCache.get(track.uri) : null;
+    tracker.observe({
+      track: track ? { uri: track.uri, fileName: track.name, title: metadata?.title || fallbackMetadata(track).title, artist: metadata?.artist || fallbackMetadata(track).artist } : null,
+      positionSeconds: currentTime,
+      durationSeconds: duration,
+      playing,
+      buffering,
+      atMs: Date.now(),
+    });
+  }, [currentMetadata, currentTrack, metadataCache, player, queue, tracker]);
+
+  const { screen, setScreen, openFolder, openPlayerFromMini, openQueue, closeQueue, openWrapped, closeWrapped } = useScreenNavigation({
+    currentTrack,
+    folders,
+    folderActions,
+    folderToConfirm,
+    observePlayback,
+    flushListening: () => tracker.flush(),
+    onCloseFolderActions: () => setFolderActions(null),
+    onCloseFolderConfirmation: () => setFolderToConfirm(null),
+  });
 
   const savePlayback = useCallback((playback: SavedPlayback | null) => {
     const serialized = playback ? JSON.stringify(playback) : null;
@@ -163,18 +186,6 @@ function Mp3fyApp() {
     return scanResult.tracks;
   }, []);
 
-  const observePlayback = useCallback((currentTime = player.currentTime, playing = player.playing, buffering = player.isBuffering, duration = player.duration, index = player.currentIndex) => {
-    const track = queue[index] ?? currentTrack;
-    const metadata = track?.uri === currentTrack?.uri ? currentMetadata : track ? metadataCache.get(track.uri) : null;
-    tracker.observe({
-      track: track ? { uri: track.uri, fileName: track.name, title: metadata?.title || fallbackMetadata(track).title, artist: metadata?.artist || fallbackMetadata(track).artist } : null,
-      positionSeconds: currentTime,
-      durationSeconds: duration,
-      playing,
-      buffering,
-      atMs: Date.now(),
-    });
-  }, [currentMetadata, currentTrack, metadataCache, player, queue, tracker]);
 
   useEffect(() => {
     void initializeWrappedStore().catch(() => undefined);
@@ -222,37 +233,6 @@ function Mp3fyApp() {
     }
   }, [artworkCache, currentMetadata, currentTrack?.uri, player]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (folderActions || folderToConfirm) {
-        setFolderActions(null);
-        setFolderToConfirm(null);
-        return true;
-      }
-      if (screen.kind === 'wrapped') {
-        if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
-        else if (screen.returnTo === 'songs' && screen.folderUri && folders.some((folder) => folder.uri === screen.folderUri)) setScreen({ kind: 'songs', folderUri: screen.folderUri });
-        else setScreen({ kind: 'folders' });
-        return true;
-      }
-      if (screen.kind === 'queue') {
-        if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
-        else if (screen.returnTo === 'songs' && screen.folderUri && folders.some((folder) => folder.uri === screen.folderUri)) setScreen({ kind: 'songs', folderUri: screen.folderUri });
-        else setScreen({ kind: 'folders' });
-        return true;
-      }
-      if (screen.kind === 'player') {
-        setScreen(screen.returnTo === 'songs' && currentTrack ? { kind: 'songs', folderUri: currentTrack.folderUri } : { kind: 'folders' });
-        return true;
-      }
-      if (screen.kind === 'songs') {
-        setScreen({ kind: 'folders' });
-        return true;
-      }
-      return false;
-    });
-    return () => subscription.remove();
-  }, [currentTrack, folderActions, folderToConfirm, folders, screen]);
 
   const loadArtwork = useCallback(async (track: Track) => {
     const request = ++artworkRequest.current;
@@ -677,7 +657,6 @@ function Mp3fyApp() {
     }
   }, [currentTrack, folders, observePlayback, player, savePlayback, screen, tracker]);
 
-  const openFolder = useCallback((folder: Folder) => setScreen({ kind: 'songs', folderUri: folder.uri }), []);
   const togglePlayback = useCallback(() => {
     observePlayback();
     pendingRestorePosition.current = null;
@@ -708,27 +687,6 @@ function Mp3fyApp() {
     : { ...status, currentTime: pendingRestorePosition.current };
   const progress = displayedStatus.duration ? Math.min(1, displayedStatus.currentTime / displayedStatus.duration) : 0;
 
-  const openPlayerFromMini = useCallback(() => {
-    if (currentTrack) setScreen({ kind: 'player', returnTo: screen.kind === 'songs' ? 'songs' : 'folders' });
-  }, [currentTrack, screen.kind]);
-
-  const openQueue = useCallback(() => {
-    if (!currentTrack || screen.kind === 'queue' || screen.kind === 'wrapped') return;
-    setScreen({ kind: 'queue', returnTo: screen.kind, folderUri: screen.kind === 'songs' ? screen.folderUri : undefined, playerReturnTo: screen.kind === 'player' ? screen.returnTo : undefined });
-  }, [currentTrack, screen]);
-  const closeQueue = useCallback(() => {
-    if (screen.kind !== 'queue') return;
-    if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
-    else if (screen.returnTo === 'songs' && screen.folderUri && folders.some((folder) => folder.uri === screen.folderUri)) setScreen({ kind: 'songs', folderUri: screen.folderUri });
-    else setScreen({ kind: 'folders' });
-  }, [currentTrack, folders, screen]);
-
-  const openWrapped = useCallback(() => {
-    observePlayback();
-    void tracker.flush().catch(() => undefined);
-    setScreen({ kind: 'wrapped', returnTo: screen.kind === 'wrapped' ? 'folders' : screen.kind === 'queue' ? screen.returnTo : screen.kind, folderUri: screen.kind === 'songs' ? screen.folderUri : screen.kind === 'queue' ? screen.folderUri : undefined, playerReturnTo: screen.kind === 'player' ? screen.returnTo : screen.kind === 'queue' ? screen.playerReturnTo : undefined });
-  }, [observePlayback, screen, tracker]);
-
   const prepareWrappedBackup = useCallback(async () => {
     observePlayback();
     await tracker.flush();
@@ -744,13 +702,6 @@ function Mp3fyApp() {
     noteWrappedHistoryChanged();
     void saveWrappedBackupNow().catch(() => undefined);
   }, [observePlayback, player, tracker]);
-
-  const closeWrapped = useCallback(() => {
-    if (screen.kind !== 'wrapped') return;
-    if (screen.returnTo === 'player' && currentTrack) setScreen({ kind: 'player', returnTo: screen.playerReturnTo ?? 'folders' });
-    else if (screen.returnTo === 'songs' && screen.folderUri && folders.some((folder) => folder.uri === screen.folderUri)) setScreen({ kind: 'songs', folderUri: screen.folderUri });
-    else setScreen({ kind: 'folders' });
-  }, [currentTrack, folders, screen]);
 
   if (!isLibraryReady) {
     return (
