@@ -1438,7 +1438,7 @@ function SyncedLyricLine({ line, active, onLayout }: { line: string; active: boo
     return () => animation.stop();
   }, [active, progress]);
 
-  return <View onLayout={onLayout} style={styles.syncedLyricRow}><Animated.Text style={[styles.syncedLyricText, { color: progress.interpolate({ inputRange: [0, 1], outputRange: ['#999999', '#000000'] }), fontSize: progress.interpolate({ inputRange: [0, 1], outputRange: [18, 22] }), opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }]}>{line || ' '}</Animated.Text></View>;
+  return <View onLayout={onLayout} style={styles.syncedLyricRow}><Animated.Text style={[styles.syncedLyricText, { color: progress.interpolate({ inputRange: [0, 1], outputRange: ['#999999', '#000000'] }), opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }]}>{line || ' '}</Animated.Text></View>;
 }
 
 const styles = StyleSheet.create({
@@ -1526,7 +1526,7 @@ const styles = StyleSheet.create({
   lyricsTrack: { paddingTop: 20 },
   lyricsTitle: { color: '#000000', fontSize: 23, fontWeight: '700' },
   lyricsArtist: { color: '#555555', fontSize: 13, marginTop: 4 },
-  lyricsContent: { paddingBottom: 36, paddingTop: 24 },
+  lyricsContent: { paddingBottom: 72, paddingTop: 60 },
   lyricsMessage: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
   lyricsMessageTitle: { color: '#000000', fontSize: 20, fontWeight: '700', textAlign: 'center' },
   lyricsMessageText: { color: '#555555', fontSize: 13, lineHeight: 20, marginTop: 10, textAlign: 'center' },
