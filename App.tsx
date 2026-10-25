@@ -671,7 +671,7 @@ function Mp3fyApp() {
     if (!notificationsGranted || !currentTrack) return;
     const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
     callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: true, showSeekForward: true });
-  }, [artworkCache, currentMetadata, currentTrack?.uri, notificationsGranted, player]);
+  }, [artworkCache, currentMetadata, currentTrack?.uri, notificationsGranted, player, status.playing]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
