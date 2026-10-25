@@ -660,7 +660,7 @@ function Mp3fyApp() {
       } else if (nextState === 'active') {
         void initializeWrappedStore().catch(() => undefined);
       }
-      if (notificationsGranted && currentTrack && nextState !== 'unknown' && lockScreenTrackUri.current !== currentTrack.uri) {
+      if (currentTrack && nextState !== 'unknown' && lockScreenTrackUri.current === null) {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
         lockScreenTrackUri.current = currentTrack.uri;
         callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: false, showSeekForward: false });
@@ -670,12 +670,16 @@ function Mp3fyApp() {
   }, [artworkCache, currentMetadata, currentTrack, notificationsGranted, observePlayback, player, savePlayback, tracker]);
 
   useEffect(() => {
-    if (!notificationsGranted || !currentTrack) return;
-    if (lockScreenTrackUri.current === currentTrack.uri) return;
+    if (!currentTrack) return;
     const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
-    lockScreenTrackUri.current = currentTrack.uri;
-    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: false, showSeekForward: false });
-  }, [artworkCache, currentMetadata, currentTrack?.uri, notificationsGranted, player]);
+    if (lockScreenTrackUri.current === null) {
+      lockScreenTrackUri.current = currentTrack.uri;
+      callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: false, showSeekForward: false });
+    } else if (lockScreenTrackUri.current !== currentTrack.uri) {
+      lockScreenTrackUri.current = currentTrack.uri;
+      callOptionalPlayerMethod(player, 'updateLockScreenMetadata', { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined });
+    }
+  }, [artworkCache, currentMetadata, currentTrack?.uri, player]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -919,6 +923,8 @@ function Mp3fyApp() {
     setCurrentMetadata(nextMetadata);
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
+    lockScreenTrackUri.current = nextTrack.uri;
+    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined }, { showSeekBackward: false, showSeekForward: false });
     player.play();
     restoreTimer.current = setTimeout(() => {
       if (pendingRestorePosition.current === null) return;
