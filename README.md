@@ -6,7 +6,7 @@ The app will not download music, create MP3 files, identify songs, or access sto
 
 ## Current status
 
-The current source includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, folder filename order, song title order, shuffle, repeat-folder, repeat-one, an editable playing queue, embedded album artwork, ID3 title/artist/album/track metadata, background controls, and loading feedback during folder operations. It restores the last song, folder, playback position, and queue after reopening, showing the folders home screen with the mini player at the bottom, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected. mp3fy Wrapped shows listening time and top artists and songs for a day, week, month, year, or all time.
+The current source includes Android folder selection, recursive MP3 discovery, persistent selected folders, search, local playback, seeking, previous/next controls, folder filename order, song title order, shuffle, repeat-folder, repeat-one, an editable playing queue, embedded album artwork, ID3 title/artist/album/track metadata, on-demand LRCLIB lyrics with time-synced display, background controls, and loading feedback during folder operations. It restores the last song, folder, playback position, and queue after reopening, showing the folders home screen with the mini player at the bottom, ready to continue when the user presses Play. Playback queues always stay within the folder where the track was selected. mp3fy Wrapped shows listening time and top artists and songs for a day, week, month, year, or all time.
 
 The folder list, folder artwork locations, and discovered track list are saved in app storage. On later launches, the saved library appears as soon as it is read; a scan then refreshes it for files added or removed since the last launch. Adding or removing a folder also updates the saved library. The first launch after upgrading from an older build still needs one full scan to create this snapshot.
 
@@ -22,7 +22,11 @@ Open **Queue** from the home screen, a folder's song list, or the full player wh
 
 **Clear Queue** asks for confirmation. Confirming leaves only the current song in the playlist and switches to repeat-one. Removing the last upcoming song has the same repeat-one result. If repeat-one is already active while other songs remain queued, the current song continues repeating until repeat-one is turned off.
 
-The current Android release is version `1.5.8` (`versionCode` `44`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
+## Lyrics
+
+The full-screen player has a **LYRICS** action beside the current song title. Lyrics are fetched from LRCLIB only after the user taps it, and only for the current track. Synced LRC lines follow playback time and scroll automatically; plain lyrics, instrumental tracks, missing results, and network failures each have a dedicated fallback state. Lyrics are not fetched for queued or background tracks.
+
+The current Android release is version `1.6.0` (`versionCode` `45`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 
 ## mp3fy Wrapped
 
@@ -151,3 +155,4 @@ The app uses Android's user-controlled folder picker so the user chooses exactly
 ## Official reference
 
 - [Android Storage Access Framework: access documents and other files](https://developer.android.com/training/data-storage/shared/documents-files)
+- [LRCLIB API documentation](https://lrclib.net/docs)

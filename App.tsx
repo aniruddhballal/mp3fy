@@ -30,6 +30,7 @@ import { QueueScreen, type QueueRow } from './QueueScreen';
 import { moveUpcoming, upcomingFrom } from './queueOrder';
 import { buildQueue, nextPlaybackMode, restorePlaybackMode, titleAndArtistFromFilename, type PlaybackMode } from './playbackOrder';
 import { APP_VERSION } from './appVersion';
+import { fetchLyrics, type LyricsResult } from './lyrics';
 
 const FOLDERS_KEY = 'mp3fy.selectedFolders.v1';
 const LIBRARY_KEY = 'mp3fy.library.v1';
@@ -1339,11 +1340,46 @@ function PlaybackOrderButton({ mode, onPress }: { mode: PlaybackMode; onPress: (
 }
 
 function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenQueue }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenQueue: () => void }) {
+  const [lyricsOpen, setLyricsOpen] = useState(false);
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [lyricsResult, setLyricsResult] = useState<LyricsResult | null>(null);
+  const lyricsRequest = useRef(0);
+
+  const requestLyrics = useCallback(() => {
+    if (lyricsLoading) return;
+    const requestId = ++lyricsRequest.current;
+    setLyricsLoading(true);
+    setLyricsResult(null);
+    void fetchLyrics({
+      title: metadata.title,
+      artist: metadata.artist,
+      album: metadata.album || undefined,
+      duration: Number.isFinite(status.duration) && status.duration >= 1 && status.duration <= 3600 ? status.duration : undefined,
+    }).then((result) => {
+      if (requestId !== lyricsRequest.current) return;
+      setLyricsResult(result);
+      setLyricsLoading(false);
+    });
+  }, [lyricsLoading, metadata.album, metadata.artist, metadata.title, status.duration]);
+
+  const openLyrics = useCallback(() => {
+    setLyricsOpen(true);
+    if (!lyricsResult && !lyricsLoading) requestLyrics();
+  }, [lyricsLoading, lyricsResult, requestLyrics]);
+
+  useEffect(() => {
+    lyricsRequest.current += 1;
+    setLyricsOpen(false);
+    setLyricsLoading(false);
+    setLyricsResult(null);
+    return () => { lyricsRequest.current += 1; };
+  }, [track.uri]);
+
   return (
     <ScrollView contentContainerStyle={styles.playerScreen} showsVerticalScrollIndicator={false}>
       <ScreenHeader right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /></View>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
-      <View style={styles.playerTitleRow}><MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} /><QueueButton onPress={onOpenQueue} /></View>
+      <View style={styles.playerTitleRow}><MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} /><View style={styles.playerTitleActions}><Pressable accessibilityRole="button" accessibilityLabel="Show lyrics" onPress={openLyrics} style={({ pressed }) => [styles.lyricsButton, pressed && styles.pressed]}><Text style={styles.lyricsButtonText}>LYRICS</Text></Pressable><QueueButton onPress={onOpenQueue} /></View></View>
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
       {metadata.album || metadata.trackNumber ? <View style={styles.metadataDetails}>
         {metadata.album ? <MarqueeText style={styles.metadataAlbumViewport} text={metadata.album} textStyle={styles.metadataItem} /> : null}
@@ -1352,8 +1388,42 @@ function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progre
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
       <View style={styles.timeRow}><Text style={styles.timeText}>{formatTime(status.currentTime)}</Text><Text style={styles.timeText}>{formatTime(status.duration)}</Text></View>
       <View style={styles.transportRow}><PlaybackOrderButton mode={mode} onPress={() => onModeChange(nextPlaybackMode(mode))} /><SmallButton label="|<" transport onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} transport onPress={onTogglePlay} /><SmallButton label="|>" transport onPress={onNext} /><IconButton icon={repeatMode === 'one' ? 'repeatOne' : 'repeatAll'} transport accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
+      <LyricsModal visible={lyricsOpen} title={metadata.title} artist={metadata.artist} result={lyricsResult} loading={lyricsLoading} currentTime={status.currentTime} onClose={() => setLyricsOpen(false)} onRetry={requestLyrics} />
     </ScrollView>
   );
+}
+
+function LyricsModal({ visible, title, artist, result, loading, currentTime, onClose, onRetry }: { visible: boolean; title: string; artist: string; result: LyricsResult | null; loading: boolean; currentTime: number; onClose: () => void; onRetry: () => void }) {
+  const scrollRef = useRef<ScrollView>(null);
+  const lineOffsets = useRef<Record<number, number>>({});
+  const previousActiveLine = useRef(-2);
+  const syncedLines = result?.kind === 'synced' ? result.lines : [];
+  const activeLine = useMemo(() => {
+    if (result?.kind !== 'synced') return -1;
+    let active = -1;
+    result.lines.forEach((line, index) => { if (line.timestampMs / 1000 <= currentTime) active = index; });
+    return active;
+  }, [currentTime, result]);
+
+  useEffect(() => {
+    lineOffsets.current = {};
+    previousActiveLine.current = -2;
+  }, [result]);
+
+  useEffect(() => {
+    if (activeLine < 0 || activeLine === previousActiveLine.current) return;
+    previousActiveLine.current = activeLine;
+    const offset = lineOffsets.current[activeLine];
+    if (offset !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, offset - 120), animated: true });
+  }, [activeLine]);
+
+  return <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
+    <View style={styles.lyricsModal}>
+      <View style={styles.lyricsHeader}><View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.label}>LYRICS</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close lyrics" onPress={onClose} style={styles.headerIconButton}><MaterialCommunityIcons name="close" size={23} color="#000000" /></Pressable></View>
+      <View style={styles.lyricsTrack}><Text numberOfLines={1} style={styles.lyricsTitle}>{title}</Text>{artist ? <Text numberOfLines={1} style={styles.lyricsArtist}>{artist}</Text> : null}</View>
+      {loading ? <View style={styles.lyricsMessage}><ActivityIndicator color="#000000" /><Text style={styles.lyricsMessageText}>Loading lyrics...</Text></View> : result?.kind === 'error' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Lyrics unavailable</Text><Text style={styles.lyricsMessageText}>{result.message}</Text><Pressable accessibilityRole="button" onPress={onRetry} style={styles.lyricsRetry}><Text style={styles.lyricsRetryText}>TRY AGAIN</Text></Pressable></View> : result?.kind === 'not-found' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>No lyrics found</Text><Text style={styles.lyricsMessageText}>LRCLIB does not have lyrics for this song.</Text></View> : result?.kind === 'instrumental' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Instrumental track</Text><Text style={styles.lyricsMessageText}>There are no lyrics for this song.</Text></View> : result?.kind === 'plain' ? <ScrollView contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{result.plainLyrics.split(/\r?\n/).map((line, index) => <Text key={`${index}-${line}`} style={styles.plainLyricLine}>{line || ' '}</Text>)}</ScrollView> : result?.kind === 'synced' ? <ScrollView ref={scrollRef} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{syncedLines.map((line, index) => <View key={`${index}-${line.timestampMs}`} onLayout={(event) => { lineOffsets.current[index] = event.nativeEvent.layout.y; }} style={styles.syncedLyricRow}><Text style={[styles.syncedLyricText, index === activeLine && styles.activeSyncedLyricText]}>{line.text || ' '}</Text></View>)}</ScrollView> : null}
+    </View>
+  </Modal>;
 }
 
 const styles = StyleSheet.create({
@@ -1426,6 +1496,7 @@ const styles = StyleSheet.create({
   playerHeaderFolderText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
   playerArt: { alignItems: 'center', paddingTop: 18 },
   playerTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 12, marginTop: 16 },
+  playerTitleActions: { alignItems: 'center', flexDirection: 'row', gap: 6 },
   playerTitle: { color: '#000000', fontSize: 23, fontWeight: '700', lineHeight: 29 },
   playerArtist: { color: '#555555', fontSize: 14, marginTop: 4 },
   playerTitleViewport: { flex: 1, minWidth: 0 },
@@ -1433,6 +1504,23 @@ const styles = StyleSheet.create({
   metadataDetails: { flexDirection: 'row', gap: 14, marginTop: 4 },
   metadataAlbumViewport: { flex: 1, minWidth: 0 },
   metadataItem: { color: '#555555', flexShrink: 1, fontSize: 11 },
+  lyricsButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 36, justifyContent: 'center', paddingHorizontal: 10 },
+  lyricsButtonText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  lyricsModal: { backgroundColor: '#FFFFFF', flex: 1, paddingHorizontal: 20 },
+  lyricsHeader: { alignItems: 'flex-end', borderBottomColor: '#000000', borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 12, paddingTop: 10 },
+  lyricsTrack: { paddingTop: 20 },
+  lyricsTitle: { color: '#000000', fontSize: 23, fontWeight: '700' },
+  lyricsArtist: { color: '#555555', fontSize: 13, marginTop: 4 },
+  lyricsContent: { paddingBottom: 36, paddingTop: 24 },
+  lyricsMessage: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  lyricsMessageTitle: { color: '#000000', fontSize: 20, fontWeight: '700', textAlign: 'center' },
+  lyricsMessageText: { color: '#555555', fontSize: 13, lineHeight: 20, marginTop: 10, textAlign: 'center' },
+  lyricsRetry: { borderColor: '#000000', borderWidth: 1, marginTop: 20, paddingHorizontal: 18, paddingVertical: 12 },
+  lyricsRetryText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.7 },
+  plainLyricLine: { color: '#222222', fontSize: 18, lineHeight: 29, marginBottom: 12 },
+  syncedLyricRow: { paddingVertical: 9 },
+  syncedLyricText: { color: '#999999', fontSize: 18, fontWeight: '600', lineHeight: 25 },
+  activeSyncedLyricText: { color: '#000000', fontSize: 22, fontWeight: '700', lineHeight: 29 },
   progressTrack: { backgroundColor: '#DDDDDD', height: 8, marginTop: 16, overflow: 'hidden' },
   progressFill: { backgroundColor: '#000000', height: 8 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
