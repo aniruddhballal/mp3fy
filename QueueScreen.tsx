@@ -37,7 +37,7 @@ function DragHandle({ index, title, onStart, onMove, onEnd, onCancel, onMoveBy }
   return <View {...responder.panHandlers} accessible accessibilityRole="adjustable" accessibilityLabel={`Reorder ${title}`} accessibilityHint="Drag to move this song in the queue" accessibilityActions={[{ name: 'decrement', label: 'Move up' }, { name: 'increment', label: 'Move down' }]} onAccessibilityAction={(event) => onMoveBy(index, index + (event.nativeEvent.actionName === 'decrement' ? -1 : 1))} style={styles.dragHandle}><MaterialCommunityIcons name="drag-horizontal-variant" size={24} color="#333333" /></View>;
 }
 
-export const QueueScreen = memo(function QueueScreen({ current, upcoming, playing, repeatOne, onBack, onMove, onRemove, onClear }: { current: QueueRow; upcoming: QueueRow[]; playing: boolean; repeatOne: boolean; onBack: () => void; onMove: (from: number, to: number) => void; onRemove: (uri: string) => void; onClear: () => void }) {
+export const QueueScreen = memo(function QueueScreen({ current, upcoming, playing, onBack, onMove, onRemove, onClear }: { current: QueueRow; upcoming: QueueRow[]; playing: boolean; onBack: () => void; onMove: (from: number, to: number) => void; onRemove: (uri: string) => void; onClear: () => void }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
   const dragRef = useRef<{ from: number; to: number; startOffset: number; dy: number } | null>(null);
@@ -116,8 +116,6 @@ export const QueueScreen = memo(function QueueScreen({ current, upcoming, playin
     <View style={styles.header}><View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.headerSubtitle}>QUEUE</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close queue" onPress={onBack} style={styles.headerButton}><MaterialCommunityIcons name="close" size={23} color="#000000" /></Pressable></View>
     <View style={styles.currentCard}><PlayingBars playing={playing} /><View style={styles.currentCopy}><Text style={styles.eyebrow}>CURRENT SONG</Text><Text numberOfLines={1} style={styles.currentTitle}>{current.title}</Text>{current.artist ? <Text numberOfLines={1} style={styles.artist}>{current.artist}</Text> : null}</View></View>
     <View style={styles.sectionHeader}><View><Text style={styles.sectionTitle}>UP NEXT</Text><Text style={styles.sectionCount}>{upcoming.length} {upcoming.length === 1 ? 'song' : 'songs'}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Clear queue" accessibilityState={{ disabled: upcoming.length === 0 }} disabled={upcoming.length === 0} onPress={() => setConfirmClear(true)}><Text style={[styles.clearText, upcoming.length === 0 && styles.disabledText]}>CLEAR QUEUE</Text></Pressable></View>
-    {repeatOne && upcoming.length > 0 ? <Text style={styles.repeatNotice}>Repeat one is on. The current song repeats until you turn it off.</Text> : null}
-    {upcoming.length > 0 ? <Text style={styles.dragHint}>Drag the handle to change the order.</Text> : null}
     <View ref={listContainerRef} onLayout={(event) => { viewportHeight.current = event.nativeEvent.layout.height; }} style={styles.list}><ScrollView ref={scrollRef} scrollEnabled={!drag} scrollEventThrottle={16} onScroll={(event) => { scrollOffset.current = event.nativeEvent.contentOffset.y; }} onContentSizeChange={(_, height) => { contentHeight.current = height; }} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
       {upcoming.length ? upcoming.map((item, index) => <Animated.View key={item.uri} style={[styles.queueRow, drag?.to === index && drag.from !== index && styles.dropTarget, drag?.from === index && { backgroundColor: '#FFFFFF', elevation: 8, zIndex: 10, transform: [{ translateY: dragOffset }] }]}><Text style={styles.rowNumber}>{index + 1}</Text><View style={styles.rowCopy}><Text numberOfLines={1} style={styles.rowTitle}>{item.title}</Text>{item.artist ? <Text numberOfLines={1} style={styles.artist}>{item.artist}</Text> : null}</View><Pressable accessibilityRole="button" accessibilityLabel={`Remove ${item.title} from queue`} onPress={() => onRemove(item.uri)} style={styles.removeButton}><MaterialCommunityIcons name="close" size={20} color="#555555" /></Pressable><DragHandle index={index} title={item.title} onStart={startDrag} onMove={updateDrag} onEnd={endDrag} onCancel={cancelDrag} onMoveBy={onMove} /></Animated.View>) : <View style={styles.emptyQueue}><Text style={styles.emptyTitle}>Queue is clear</Text><Text style={styles.emptyDetail}>The current song will repeat.</Text></View>}
     </ScrollView></View>
@@ -143,8 +141,6 @@ const styles = StyleSheet.create({
   sectionCount: { color: '#666666', fontSize: 11, marginTop: 3 },
   clearText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.6, textDecorationLine: 'underline' },
   disabledText: { color: '#AAAAAA' },
-  repeatNotice: { color: '#555555', fontSize: 11, marginTop: 12 },
-  dragHint: { color: '#666666', fontSize: 11, marginTop: 12 },
   list: { flex: 1, marginTop: 10 },
   listContent: { paddingBottom: 24 },
   queueRow: { alignItems: 'center', borderBottomColor: '#DDDDDD', borderBottomWidth: 1, flexDirection: 'row', height: ROW_HEIGHT },
