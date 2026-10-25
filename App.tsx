@@ -527,6 +527,7 @@ function Mp3fyApp() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
+  const lockScreenTrackUri = useRef<string | null>(null);
   const pendingRestorePosition = useRef<number | null>(null);
   const latestPlayback = useRef<SavedPlayback | null>(null);
   const lastSavedPlayback = useRef<string | null>(null);
@@ -659,8 +660,9 @@ function Mp3fyApp() {
       } else if (nextState === 'active') {
         void initializeWrappedStore().catch(() => undefined);
       }
-      if (notificationsGranted && currentTrack && nextState !== 'unknown') {
+      if (notificationsGranted && currentTrack && nextState !== 'unknown' && lockScreenTrackUri.current !== currentTrack.uri) {
         const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
+        lockScreenTrackUri.current = currentTrack.uri;
         callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: true, showSeekForward: true });
       }
     });
@@ -669,9 +671,11 @@ function Mp3fyApp() {
 
   useEffect(() => {
     if (!notificationsGranted || !currentTrack) return;
+    if (lockScreenTrackUri.current === currentTrack.uri) return;
     const metadata = currentMetadata ?? fallbackMetadata(currentTrack);
+    lockScreenTrackUri.current = currentTrack.uri;
     callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: artworkCache.get(currentTrack.uri) ?? undefined }, { showSeekBackward: true, showSeekForward: true });
-  }, [artworkCache, currentMetadata, currentTrack?.uri, notificationsGranted, player, status.playing]);
+  }, [artworkCache, currentMetadata, currentTrack?.uri, notificationsGranted, player]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -915,7 +919,6 @@ function Mp3fyApp() {
     setCurrentMetadata(nextMetadata);
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
-    callOptionalPlayerMethod(player, 'setActiveForLockScreen', true, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined }, { showSeekBackward: true, showSeekForward: true });
     player.play();
     restoreTimer.current = setTimeout(() => {
       if (pendingRestorePosition.current === null) return;
@@ -1113,6 +1116,7 @@ function Mp3fyApp() {
         savePlayback(null);
         player.pause();
         player.clear();
+        lockScreenTrackUri.current = null;
         callOptionalPlayerMethod(player, 'setActiveForLockScreen', false);
         setCurrentTrack(null);
         setCurrentArtwork(null);
