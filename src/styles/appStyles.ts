@@ -82,6 +82,8 @@ export const styles = StyleSheet.create({
   metadataItem: { color: '#555555', flexShrink: 1, fontSize: 11 },
   lyricsButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 36, justifyContent: 'center', paddingHorizontal: 10 },
   lyricsButtonText: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  lyricsInlineNotice: { alignSelf: 'stretch', borderColor: '#CCCCCC', borderWidth: 1, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  lyricsInlineNoticeText: { color: '#555555', fontSize: 12, lineHeight: 18, textAlign: 'center' },
   lyricsModal: { backgroundColor: '#FFFFFF', flex: 1, paddingHorizontal: 20 },
   lyricsHeader: { alignItems: 'flex-end', borderBottomColor: '#000000', borderBottomWidth: 1, flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 12, paddingTop: 10 },
   lyricsTrack: { paddingTop: 20 },

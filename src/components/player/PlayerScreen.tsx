@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, LayoutChangeEvent, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
-import { fetchLyrics, type LyricsResult } from '../../features/lyrics/lyrics';
+import { fetchLyrics, LYRICS_NETWORK_ERROR_MESSAGE, type LyricsResult } from '../../features/lyrics/lyrics';
 import { nextPlaybackMode, type PlaybackMode } from '../../features/playback/playbackOrder';
 import type { RepeatMode, Track, TrackMetadata } from '../../types/domain';
 import { ActionButton, AlbumArt, MarqueeText, QueueButton, ScreenHeader, SmallButton } from '../AppPrimitives';
@@ -45,9 +45,10 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsResult, setLyricsResult] = useState<LyricsResult | null>(null);
+  const [lyricsInlineError, setLyricsInlineError] = useState(false);
   const lyricsRequest = useRef(0);
 
-  const requestLyrics = useCallback(() => {
+  const requestLyrics = useCallback((openAfterLoad = false) => {
     if (lyricsLoading) return;
     const requestId = ++lyricsRequest.current;
     setLyricsLoading(true);
@@ -61,12 +62,26 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
       if (requestId !== lyricsRequest.current) return;
       setLyricsResult(result);
       setLyricsLoading(false);
+      if (openAfterLoad) {
+        if (result.kind === 'error' && result.reason === 'network') {
+          setLyricsInlineError(true);
+        } else {
+          setLyricsInlineError(false);
+          setLyricsOpen(true);
+        }
+      }
     });
   }, [lyricsLoading, metadata.album, metadata.artist, metadata.title, status.duration]);
 
   const openLyrics = useCallback(() => {
-    setLyricsOpen(true);
-    if (!lyricsResult && !lyricsLoading) requestLyrics();
+    setLyricsInlineError(false);
+    if (!lyricsResult && !lyricsLoading) {
+      requestLyrics(true);
+    } else if (lyricsResult?.kind === 'error' && lyricsResult.reason === 'network' && !lyricsLoading) {
+      requestLyrics(true);
+    } else {
+      setLyricsOpen(true);
+    }
   }, [lyricsLoading, lyricsResult, requestLyrics]);
 
   useEffect(() => {
@@ -74,6 +89,7 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
     setLyricsOpen(false);
     setLyricsLoading(false);
     setLyricsResult(null);
+    setLyricsInlineError(false);
     return () => { lyricsRequest.current += 1; };
   }, [track.uri]);
 
@@ -82,6 +98,7 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
       <ScreenHeader right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /></View>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
       <View style={styles.playerTitleRow}><MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} /><View style={styles.playerTitleActions}><Pressable accessibilityRole="button" accessibilityLabel="Show lyrics" onPress={openLyrics} style={({ pressed }) => [styles.lyricsButton, pressed && styles.pressed]}><Text style={styles.lyricsButtonText}>LYRICS</Text></Pressable><QueueButton onPress={onOpenQueue} /></View></View>
+      {lyricsInlineError ? <View style={styles.lyricsInlineNotice}><Text style={styles.lyricsInlineNoticeText}>{LYRICS_NETWORK_ERROR_MESSAGE}</Text></View> : null}
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
       {metadata.album || metadata.trackNumber ? <View style={styles.metadataDetails}>
         {metadata.album ? <MarqueeText style={styles.metadataAlbumViewport} text={metadata.album} textStyle={styles.metadataItem} /> : null}

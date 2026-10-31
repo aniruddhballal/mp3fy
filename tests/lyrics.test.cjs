@@ -2,6 +2,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   LRCLIB_API_URL,
+  LYRICS_NETWORK_ERROR_MESSAGE,
+  LYRICS_UNAVAILABLE_ERROR_MESSAGE,
   MP3FY_USER_AGENT,
   fetchLyrics,
   parseSyncedLyrics,
@@ -109,18 +111,19 @@ test('returns not-found for LRCLIB 404 and a successful empty record', async () 
   assert.equal(emptyResult.kind, 'not-found');
 });
 
-test('returns useful errors for HTTP, network, invalid JSON, and invalid response failures', async () => {
+test('returns simple user-facing errors for HTTP, network, invalid JSON, and invalid response failures', async () => {
   const http = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => response({}, 503, false));
   assert.deepEqual(http, {
     kind: 'error',
-    message: 'LRCLIB returned HTTP 503',
+    message: LYRICS_UNAVAILABLE_ERROR_MESSAGE,
   });
 
   const network = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => {
-    throw new Error('offline');
+    throw new Error('java.net.UnknownHostException: Unable to resolve host');
   });
   assert.equal(network.kind, 'error');
-  assert.equal(network.message, 'offline');
+  assert.equal(network.message, LYRICS_NETWORK_ERROR_MESSAGE);
+  assert.equal(network.reason, 'network');
 
   const invalidJson = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => ({
     status: 200,
@@ -128,13 +131,13 @@ test('returns useful errors for HTTP, network, invalid JSON, and invalid respons
     json: async () => { throw new SyntaxError('bad json'); },
   }));
   assert.equal(invalidJson.kind, 'error');
-  assert.equal(invalidJson.message, 'bad json');
+  assert.equal(invalidJson.message, LYRICS_UNAVAILABLE_ERROR_MESSAGE);
 
   const invalidResponse = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => (
     response(basePayload({ plainLyrics: 123 }))
   ));
   assert.equal(invalidResponse.kind, 'error');
-  assert.match(invalidResponse.message, /plainLyrics must be a string/);
+  assert.equal(invalidResponse.message, LYRICS_UNAVAILABLE_ERROR_MESSAGE);
 });
 
 test('returns validation errors without making a request', async () => {
@@ -145,7 +148,7 @@ test('returns validation errors without making a request', async () => {
   });
 
   assert.equal(result.kind, 'error');
-  assert.equal(result.message, 'title is required');
+  assert.equal(result.message, LYRICS_UNAVAILABLE_ERROR_MESSAGE);
   assert.equal(called, false);
 });
 
