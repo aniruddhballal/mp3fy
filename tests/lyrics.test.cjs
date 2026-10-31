@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
   LRCLIB_API_URL,
+  LYRICS_NETWORK_ERROR_MESSAGE,
   MP3FY_USER_AGENT,
   fetchLyrics,
   parseSyncedLyrics,
@@ -117,10 +118,11 @@ test('returns useful errors for HTTP, network, invalid JSON, and invalid respons
   });
 
   const network = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => {
-    throw new Error('offline');
+    throw new Error('java.net.UnknownHostException: Unable to resolve host');
   });
   assert.equal(network.kind, 'error');
-  assert.equal(network.message, 'offline');
+  assert.equal(network.message, LYRICS_NETWORK_ERROR_MESSAGE);
+  assert.equal(network.reason, 'network');
 
   const invalidJson = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => ({
     status: 200,

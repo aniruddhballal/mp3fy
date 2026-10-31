@@ -35,12 +35,14 @@ export type LyricsNotFound = {
 export type LyricsFailure = {
   kind: 'error';
   message: string;
+  reason?: 'network';
 };
 
 export type LyricsResult = LyricsSuccess | LyricsNotFound | LyricsFailure;
 
 export const LRCLIB_API_URL = 'https://lrclib.net/api/get';
 export const MP3FY_USER_AGENT = 'mp3fy/1.6.2';
+export const LYRICS_NETWORK_ERROR_MESSAGE = 'No internet connection. Check your connection and try again.';
 
 const TIMESTAMP_TAG = /\[(\d+):(\d{1,2})(?:\.(\d{1,3}))?\]/g;
 const TIMESTAMP_PREFIX = /^(?:\s*\[\d+:\d{1,2}(?:\.\d{1,3})?\])+/;
@@ -79,8 +81,8 @@ export function parseSyncedLyrics(value: string | null | undefined): LyricsLine[
   return parsed.map(({ timestampMs, text }) => ({ timestampMs, text }));
 }
 
-function errorResult(message: string): LyricsFailure {
-  return { kind: 'error', message };
+function errorResult(message: string, reason?: LyricsFailure['reason']): LyricsFailure {
+  return reason ? { kind: 'error', message, reason } : { kind: 'error', message };
 }
 
 function notFound(): LyricsNotFound {
@@ -169,7 +171,7 @@ export async function fetchLyrics(
       headers: { Accept: 'application/json', 'User-Agent': MP3FY_USER_AGENT },
     });
   } catch (error) {
-    return errorResult(messageFromUnknown(error, 'Unable to reach LRCLIB'));
+    return errorResult(LYRICS_NETWORK_ERROR_MESSAGE, 'network');
   }
 
   if (response.status === 404) return notFound();
