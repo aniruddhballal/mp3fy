@@ -25,7 +25,6 @@ type UseAppStartupOptions = {
   latestPlayback: MutableRefObject<SavedPlayback | null>;
   lastSavedPlayback: MutableRefObject<string | null>;
   restoreTimer: MutableRefObject<ReturnType<typeof setTimeout> | null>;
-  libraryRefreshTimer: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   rescan: (folders: Folder[]) => Promise<Track[]>;
   rememberShuffle: (folderUri: string, queue: Track[]) => void;
   savePlayback: (playback: SavedPlayback | null) => void;
@@ -46,14 +45,13 @@ type UseAppStartupOptions = {
   setNotificationsGranted: Dispatch<SetStateAction<boolean>>;
 };
 
-export function useAppStartup({ player, shuffleHistory, pendingRestorePosition, latestPlayback, lastSavedPlayback, restoreTimer, libraryRefreshTimer, rescan, rememberShuffle, savePlayback, loadArtwork, setFolders, setTracks, setQueue, setQueueIndex, setMode, setRepeatMode, setCurrentTrack, setCurrentMetadata, setCurrentArtwork, setIsArtworkLoading, setNotice, setIsLibraryReady, setIsInitialized, setNotificationsGranted }: UseAppStartupOptions) {
+export function useAppStartup({ player, shuffleHistory, pendingRestorePosition, latestPlayback, lastSavedPlayback, restoreTimer, rescan, rememberShuffle, savePlayback, loadArtwork, setFolders, setTracks, setQueue, setQueueIndex, setMode, setRepeatMode, setCurrentTrack, setCurrentMetadata, setCurrentArtwork, setIsArtworkLoading, setNotice, setIsLibraryReady, setIsInitialized, setNotificationsGranted }: UseAppStartupOptions) {
   useEffect(() => {
     let mounted = true;
     setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'doNotMix', shouldPlayInBackground: true }).catch(() => undefined);
     requestNotificationPermissionsAsync().then(({ granted }) => setNotificationsGranted(granted)).catch(() => undefined);
     pruneArtworkCache();
     const restore = async () => {
-      let refreshFolders: Folder[] | null = null;
       try {
         const values = await AsyncStorage.multiGet([FOLDERS_KEY, PLAYBACK_KEY, LIBRARY_KEY, SHUFFLE_HISTORY_KEY]);
         const storedFolders = values[0][1];
@@ -79,9 +77,7 @@ export function useAppStartup({ player, shuffleHistory, pendingRestorePosition, 
             if (isLibrarySnapshot(snapshot, savedFolders)) {
               setFolders(snapshot.folders);
               setTracks(snapshot.tracks);
-              setIsLibraryReady(true);
-              libraryTracks = snapshot.tracks;
-              refreshFolders = savedFolders;
+              libraryTracks = await rescan(savedFolders);
             } else {
               libraryTracks = await rescan(savedFolders);
             }
@@ -154,12 +150,6 @@ export function useAppStartup({ player, shuffleHistory, pendingRestorePosition, 
         if (mounted) {
           setIsLibraryReady(true);
           setIsInitialized(true);
-          if (refreshFolders) {
-            const foldersToRefresh = refreshFolders;
-            libraryRefreshTimer.current = setTimeout(() => {
-              if (mounted) void rescan(foldersToRefresh);
-            }, 500);
-          }
         }
       }
     };
@@ -167,7 +157,6 @@ export function useAppStartup({ player, shuffleHistory, pendingRestorePosition, 
     return () => {
       mounted = false;
       if (restoreTimer.current) clearTimeout(restoreTimer.current);
-      if (libraryRefreshTimer.current) clearTimeout(libraryRefreshTimer.current);
     };
-  }, [lastSavedPlayback, libraryRefreshTimer, latestPlayback, loadArtwork, pendingRestorePosition, player, rememberShuffle, rescan, restoreTimer, savePlayback, setCurrentArtwork, setCurrentMetadata, setCurrentTrack, setFolders, setIsArtworkLoading, setIsInitialized, setIsLibraryReady, setMode, setNotice, setNotificationsGranted, setQueue, setQueueIndex, setRepeatMode, setTracks, shuffleHistory]);
+  }, [lastSavedPlayback, latestPlayback, loadArtwork, pendingRestorePosition, player, rememberShuffle, rescan, restoreTimer, savePlayback, setCurrentArtwork, setCurrentMetadata, setCurrentTrack, setFolders, setIsArtworkLoading, setIsInitialized, setIsLibraryReady, setMode, setNotice, setNotificationsGranted, setQueue, setQueueIndex, setRepeatMode, setTracks, shuffleHistory]);
 }

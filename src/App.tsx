@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAudioPlaylist, useAudioPlaylistStatus } from 'expo-audio';
+import { useFonts } from 'expo-font';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -39,6 +41,7 @@ export default function App() {
 }
 
 function Mp3fyApp() {
+  const [iconsLoaded] = useFonts({ ...MaterialCommunityIcons.font });
   const player = useAudioPlaylist({ sources: [], updateInterval: PLAYBACK_STATUS_UPDATE_INTERVAL_MS, loop: 'all' });
   const status = useAudioPlaylistStatus(player);
   const artworkCache = useRef(new Map<string, string | null>()).current;
@@ -58,7 +61,7 @@ function Mp3fyApp() {
   const [backupSetupMessage, setBackupSetupMessage] = useState('');
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
-  const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision, libraryRefreshTimer } = useLibraryState({ isInitialized });
+  const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision } = useLibraryState({ isInitialized });
   const { pendingRestorePosition, latestPlayback, lastSavedPlayback, restoreTimer, shuffleHistory, savePlayback, rememberShuffle } = usePlaybackPersistence({ player, status, isInitialized, currentTrack, folders, queue, mode, repeatMode });
   const lockScreenTrackUri = useRef<string | null>(null);
   const currentMetadataRef = useRef<TrackMetadata | null>(null);
@@ -204,7 +207,6 @@ function Mp3fyApp() {
     latestPlayback,
     lastSavedPlayback,
     restoreTimer,
-    libraryRefreshTimer,
     rescan,
     rememberShuffle,
     savePlayback,
@@ -292,17 +294,17 @@ function Mp3fyApp() {
     }
   }, [currentTrack, folders, observePlayback, player, savePlayback, screen, tracker]);
 
-  if (!isLibraryReady || !isWrappedBackupReady) {
+  if (!iconsLoaded || !isLibraryReady || !isWrappedBackupReady) {
     return (
       <>
         <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
         <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
           <View style={styles.container}>
             <View style={styles.startupLoading}>
-              {!isLibraryReady || isBackupSetupBusy ? <ActivityIndicator color="#000000" /> : null}
-              <Text style={styles.title}>{isLibraryReady ? 'Choose a Wrapped backup folder' : 'Loading library...'}</Text>
-              {isLibraryReady ? <Text style={styles.description}>mp3fy keeps one required Wrapped backup file in this folder. Select the same folder after reinstalling to restore your listening history.</Text> : null}
-              {isLibraryReady && !isBackupSetupBusy ? <Pressable accessibilityRole="button" onPress={() => { void selectWrappedBackupFolder(); }} style={styles.button}><Text style={styles.buttonText}>SELECT BACKUP FOLDER</Text></Pressable> : null}
+              {!iconsLoaded || !isLibraryReady || isBackupSetupBusy ? <ActivityIndicator color="#000000" /> : null}
+              <Text style={styles.title}>{!iconsLoaded ? 'Loading interface...' : isLibraryReady ? 'Choose a Wrapped backup folder' : 'Loading library...'}</Text>
+              {iconsLoaded && isLibraryReady ? <Text style={styles.description}>mp3fy keeps one required Wrapped backup file in this folder. Select the same folder after reinstalling to restore your listening history.</Text> : null}
+              {iconsLoaded && isLibraryReady && !isBackupSetupBusy ? <Pressable accessibilityRole="button" onPress={() => { void selectWrappedBackupFolder(); }} style={styles.button}><Text style={styles.buttonText}>SELECT BACKUP FOLDER</Text></Pressable> : null}
               {backupSetupMessage ? <Text style={styles.notice}>{backupSetupMessage}</Text> : null}
             </View>
           </View>
