@@ -43,6 +43,7 @@ export type LyricsResult = LyricsSuccess | LyricsNotFound | LyricsFailure;
 export const LRCLIB_API_URL = 'https://lrclib.net/api/get';
 export const MP3FY_USER_AGENT = 'mp3fy/1.6.2';
 export const LYRICS_NETWORK_ERROR_MESSAGE = 'No internet connection. Check your connection and try again.';
+export const LYRICS_UNAVAILABLE_ERROR_MESSAGE = "We couldn't load the lyrics right now. Please try again.";
 
 const TIMESTAMP_TAG = /\[(\d+):(\d{1,2})(?:\.(\d{1,3}))?\]/g;
 const TIMESTAMP_PREFIX = /^(?:\s*\[\d+:\d{1,2}(?:\.\d{1,3})?\])+/;
@@ -132,13 +133,13 @@ function toLyricsRecord(value: unknown, query: LyricsQuery): LyricsRecord {
 
 function queryUrl(query: LyricsQuery): string | LyricsFailure {
   if (!query || typeof query.title !== 'string' || query.title.trim() === '') {
-    return errorResult('title is required');
+    return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
   }
   if (typeof query.artist !== 'string' || query.artist.trim() === '') {
-    return errorResult('artist is required');
+    return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
   }
   if (query.duration !== undefined && (!Number.isFinite(query.duration) || query.duration < 0)) {
-    return errorResult('duration must be a non-negative finite number');
+    return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
   }
 
   const params = new URLSearchParams({
@@ -150,10 +151,6 @@ function queryUrl(query: LyricsQuery): string | LyricsFailure {
   return `${LRCLIB_API_URL}?${params.toString()}`;
 }
 
-function messageFromUnknown(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
 /** Fetch lyrics for one track on demand from LRCLIB. This function performs no caching or UI work. */
 export async function fetchLyrics(
   query: LyricsQuery,
@@ -162,7 +159,7 @@ export async function fetchLyrics(
   const url = queryUrl(query);
   if (typeof url !== 'string') return url;
 
-  if (typeof fetchImpl !== 'function') return errorResult('Fetch is not available');
+  if (typeof fetchImpl !== 'function') return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
 
   let response: Response;
   try {
@@ -170,33 +167,33 @@ export async function fetchLyrics(
       method: 'GET',
       headers: { Accept: 'application/json', 'User-Agent': MP3FY_USER_AGENT },
     });
-  } catch (error) {
+  } catch {
     return errorResult(LYRICS_NETWORK_ERROR_MESSAGE, 'network');
   }
 
   if (response.status === 404) return notFound();
   const isOk = response.ok ?? (response.status >= 200 && response.status < 300);
-  if (!isOk) return errorResult(`LRCLIB returned HTTP ${response.status}`);
+  if (!isOk) return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
 
   let payload: unknown;
   try {
     payload = await response.json();
-  } catch (error) {
-    return errorResult(messageFromUnknown(error, 'LRCLIB returned invalid JSON'));
+  } catch {
+    return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
   }
 
   let record: LyricsRecord;
   try {
     record = toLyricsRecord(payload, query);
-  } catch (error) {
-    return errorResult(messageFromUnknown(error, 'LRCLIB returned an invalid lyrics record'));
+  } catch {
+    return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
   }
 
   if (record.instrumental) return { kind: 'instrumental', title: record.title, artist: record.artist, album: record.album };
 
   if (record.syncedLyrics?.trim()) {
     const lines = parseSyncedLyrics(record.syncedLyrics);
-    if (lines.length === 0) return errorResult('LRCLIB returned unusable synced lyrics');
+    if (lines.length === 0) return errorResult(LYRICS_UNAVAILABLE_ERROR_MESSAGE);
     return { kind: 'synced', title: record.title, artist: record.artist, album: record.album, lines };
   }
 
