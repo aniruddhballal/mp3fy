@@ -30,7 +30,7 @@ Open **Queue** from the home screen, a folder's song list, or the full player wh
 
 The full-screen player has a **LYRICS** action beside the current song title. Lyrics are fetched from LRCLIB only after the user taps it, and only for the current track. Synced LRC lines follow playback time and scroll automatically; plain lyrics, instrumental tracks, missing results, and network failures each have a dedicated fallback state. Lyrics are not fetched for queued or background tracks.
 
-The current Android release is version `1.6.8` (`versionCode` `53`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
+The current Android release is version `1.6.9` (`versionCode` `54`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 
 ## mp3fy Wrapped
 
