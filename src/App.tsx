@@ -61,7 +61,7 @@ function Mp3fyApp() {
   const [backupSetupMessage, setBackupSetupMessage] = useState('');
   const [notificationsGranted, setNotificationsGranted] = useState(false);
   const [wrappedRevision, setWrappedRevision] = useState(0);
-  const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision } = useLibraryState({ isInitialized });
+  const { folders, setFolders, tracks, setTracks, isScanning, notice, setNotice, scanningFolderUris, rescan, addFolder, libraryRevision, libraryRefreshTimer } = useLibraryState({ isInitialized });
   const { pendingRestorePosition, latestPlayback, lastSavedPlayback, restoreTimer, shuffleHistory, savePlayback, rememberShuffle } = usePlaybackPersistence({ player, status, isInitialized, currentTrack, folders, queue, mode, repeatMode });
   const lockScreenTrackUri = useRef<string | null>(null);
   const currentMetadataRef = useRef<TrackMetadata | null>(null);
@@ -207,6 +207,7 @@ function Mp3fyApp() {
     latestPlayback,
     lastSavedPlayback,
     restoreTimer,
+    libraryRefreshTimer,
     rescan,
     rememberShuffle,
     savePlayback,

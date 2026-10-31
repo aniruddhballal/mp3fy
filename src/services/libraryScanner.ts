@@ -2,10 +2,17 @@ import { Directory, File } from 'expo-file-system';
 import type { Folder, Track } from '../types/domain';
 
 const FOLDER_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
+const SCAN_YIELD_INTERVAL = 32;
 
-function collectTracks(rootDirectory: Directory, folder: Folder, tracks: Track[], rootItems?: (Directory | File)[]) {
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function collectTracks(rootDirectory: Directory, folder: Folder, tracks: Track[], rootItems?: (Directory | File)[]) {
   const pendingDirectories = [rootDirectory];
+  let processedItems = 0;
   while (pendingDirectories.length) {
+    await yieldToEventLoop();
     const directory = pendingDirectories.pop() as Directory;
     const items = directory === rootDirectory && rootItems ? rootItems : directory.list();
     for (const item of items) {
@@ -13,6 +20,8 @@ function collectTracks(rootDirectory: Directory, folder: Folder, tracks: Track[]
       else if (item instanceof File && item.name.toLowerCase().endsWith('.mp3')) {
         tracks.push({ folderName: folder.name, folderUri: folder.uri, name: item.name, uri: item.uri });
       }
+      processedItems += 1;
+      if (processedItems % SCAN_YIELD_INTERVAL === 0) await yieldToEventLoop();
     }
   }
 }
@@ -35,13 +44,14 @@ function folderImagePriority(file: File) {
 
 export async function scanFolder(folder: Folder): Promise<{ folder: Folder; tracks: Track[] }> {
   try {
+    await yieldToEventLoop();
     const directory = new Directory(folder.uri);
     const items = directory.list();
     const image = items
       .filter((item): item is File => item instanceof File && isFolderImage(item))
       .sort((a, b) => folderImagePriority(a) - folderImagePriority(b) || a.name.localeCompare(b.name))[0];
     const tracks: Track[] = [];
-    collectTracks(directory, folder, tracks, items);
+    await collectTracks(directory, folder, tracks, items);
     return { folder: { ...folder, imageUri: image?.uri ?? null }, tracks };
   } catch {
     return { folder: { ...folder, imageUri: null }, tracks: [] };

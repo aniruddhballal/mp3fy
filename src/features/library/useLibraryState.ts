@@ -19,6 +19,7 @@ export function useLibraryState({ isInitialized }: UseLibraryStateOptions) {
   const [scanningFolderUris, setScanningFolderUris] = useState<Set<string>>(new Set());
   const libraryStorageWrite = useRef<Promise<void>>(Promise.resolve());
   const libraryRevision = useRef(0);
+  const libraryRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -86,5 +87,6 @@ export function useLibraryState({ isInitialized }: UseLibraryStateOptions) {
     rescan,
     addFolder,
     libraryRevision,
+    libraryRefreshTimer,
   };
 }
