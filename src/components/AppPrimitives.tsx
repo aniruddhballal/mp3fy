@@ -102,8 +102,8 @@ export function QueueButton({ onPress }: { onPress: () => void }) {
   return <Pressable accessibilityRole="button" accessibilityLabel="Open queue" onPress={onPress} style={({ pressed }) => [styles.headerIconButton, pressed && styles.pressed]}><MaterialCommunityIcons name="playlist-music" size={22} color="#000000" /></Pressable>;
 }
 
-export function FolderArtwork({ uri }: { uri?: string | null }) {
-  return uri ? <Image source={{ uri }} style={styles.folderArtwork} /> : <View style={styles.folderArtworkPlaceholder}><Text style={styles.folderArtworkPlaceholderText}>DIR</Text></View>;
+export function FolderArtwork({ uri, grid = false }: { uri?: string | null; grid?: boolean }) {
+  return uri ? <Image source={{ uri }} style={[styles.folderArtwork, grid && styles.folderArtworkGrid]} /> : <View style={[styles.folderArtworkPlaceholder, grid && styles.folderArtworkPlaceholderGrid]}><Text style={styles.folderArtworkPlaceholderText}>DIR</Text></View>;
 }
 
 
