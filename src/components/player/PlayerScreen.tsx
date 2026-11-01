@@ -41,7 +41,7 @@ function PlaybackOrderButton({ mode, onPress }: { mode: PlaybackMode; onPress: (
   return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.iconButton, styles.transportSideButton, shuffled && styles.activeIconButton, pressed && styles.pressed]}>{shuffled ? <TransportGlyph kind="shuffle" active /> : <Text style={styles.orderModeText}>{mode === 'folder' ? 'A-Z' : 'a-z'}</Text>}</Pressable>;
 }
 
-export function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenQueue }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenQueue: () => void }) {
+export function PlayerScreen({ track, metadata, artwork, artworkLoading, status, progress, progressWidth, mode, repeatMode, onSeek, onSeekToTime, onProgressLayout, onPrevious, onNext, onTogglePlay, onModeChange, onRepeatChange, onOpenQueue }: { track: Track; metadata: TrackMetadata; artwork: string | null; artworkLoading: boolean; status: AudioPlaylistStatus; progress: number; progressWidth: number; mode: PlaybackMode; repeatMode: RepeatMode; onSeek: (event: { nativeEvent: { locationX: number } }) => void; onSeekToTime: (seconds: number) => void; onProgressLayout: (event: LayoutChangeEvent) => void; onPrevious: () => void; onNext: () => void; onTogglePlay: () => void; onModeChange: (mode: PlaybackMode) => void; onRepeatChange: (mode: RepeatMode) => void; onOpenQueue: () => void }) {
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsResult, setLyricsResult] = useState<LyricsResult | null>(null);
@@ -107,15 +107,18 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
       <View style={styles.timeRow}><Text style={styles.timeText}>{formatTime(status.currentTime)}</Text><Text style={styles.timeText}>{formatTime(status.duration)}</Text></View>
       <View style={styles.transportRow}><PlaybackOrderButton mode={mode} onPress={() => onModeChange(nextPlaybackMode(mode))} /><SmallButton label="|<" transport onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} transport onPress={onTogglePlay} /><SmallButton label="|>" transport onPress={onNext} /><IconButton icon={repeatMode === 'one' ? 'repeatOne' : 'repeatAll'} transport accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
-      <LyricsModal visible={lyricsOpen} title={metadata.title} artist={metadata.artist} result={lyricsResult} loading={lyricsLoading} currentTime={status.currentTime} onClose={() => setLyricsOpen(false)} onRetry={requestLyrics} />
+      <LyricsModal visible={lyricsOpen} title={metadata.title} artist={metadata.artist} result={lyricsResult} loading={lyricsLoading} currentTime={status.currentTime} onSeekToTime={onSeekToTime} onClose={() => setLyricsOpen(false)} onRetry={requestLyrics} />
     </ScrollView>
   );
 }
 
-function LyricsModal({ visible, title, artist, result, loading, currentTime, onClose, onRetry }: { visible: boolean; title: string; artist: string; result: LyricsResult | null; loading: boolean; currentTime: number; onClose: () => void; onRetry: () => void }) {
+function LyricsModal({ visible, title, artist, result, loading, currentTime, onSeekToTime, onClose, onRetry }: { visible: boolean; title: string; artist: string; result: LyricsResult | null; loading: boolean; currentTime: number; onSeekToTime: (seconds: number) => void; onClose: () => void; onRetry: () => void }) {
   const scrollRef = useRef<ScrollView>(null);
   const lineOffsets = useRef<Record<number, number>>({});
   const previousActiveLine = useRef(-2);
+  const modalShown = useRef(false);
+  const scrollReady = useRef(false);
+  const contentReady = useRef(false);
   const syncedLines = result?.kind === 'synced' ? result.lines : [];
   const activeLine = useMemo(() => {
     if (result?.kind !== 'synced') return -1;
@@ -127,26 +130,32 @@ function LyricsModal({ visible, title, artist, result, loading, currentTime, onC
   useEffect(() => {
     lineOffsets.current = {};
     previousActiveLine.current = -2;
-  }, [result]);
+    scrollReady.current = false;
+    contentReady.current = false;
+    if (!visible) modalShown.current = false;
+  }, [result, visible]);
 
-  useEffect(() => {
-    if (activeLine < 0 || activeLine === previousActiveLine.current) return;
-    previousActiveLine.current = activeLine;
+  const scrollToActiveLine = useCallback(() => {
+    if (!visible || !modalShown.current || !scrollReady.current || !contentReady.current || activeLine < 0 || activeLine === previousActiveLine.current) return;
     const offset = lineOffsets.current[activeLine];
-    if (offset !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, offset - 120), animated: true });
-  }, [activeLine]);
+    if (offset === undefined || !scrollRef.current) return;
+    scrollRef.current.scrollTo({ y: Math.max(0, offset - 120), animated: true });
+    previousActiveLine.current = activeLine;
+  }, [activeLine, visible]);
 
-  return <Modal animationType="slide" navigationBarTranslucent={false} statusBarTranslucent={false} visible={visible} onRequestClose={onClose}>
-    <SafeAreaView edges={['top', 'bottom']} style={styles.lyricsModal}>
+  useEffect(() => { scrollToActiveLine(); }, [scrollToActiveLine]);
+
+  return <Modal animationType="slide" navigationBarTranslucent={false} statusBarTranslucent={false} visible={visible} onRequestClose={onClose} onShow={() => { modalShown.current = true; scrollToActiveLine(); }}>
+    {visible ? <SafeAreaView edges={['top', 'bottom']} style={styles.lyricsModal}>
       <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
       <View style={styles.lyricsHeader}><View><Text style={styles.wordmark}>mp3fy</Text><Text style={styles.label}>LYRICS</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Close lyrics" onPress={onClose} style={styles.headerIconButton}><MaterialCommunityIcons name="close" size={23} color="#000000" /></Pressable></View>
       <View style={styles.lyricsTrack}><Text numberOfLines={1} style={styles.lyricsTitle}>{title}</Text>{artist ? <Text numberOfLines={1} style={styles.lyricsArtist}>{artist}</Text> : null}</View>
-      {loading ? <View style={styles.lyricsMessage}><ActivityIndicator color="#000000" /><Text style={styles.lyricsMessageText}>Loading lyrics...</Text></View> : result?.kind === 'error' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Lyrics unavailable</Text><Text style={styles.lyricsMessageText}>{result.message}</Text><Pressable accessibilityRole="button" onPress={onRetry} style={styles.lyricsRetry}><Text style={styles.lyricsRetryText}>TRY AGAIN</Text></Pressable></View> : result?.kind === 'not-found' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>No lyrics found</Text><Text style={styles.lyricsMessageText}>LRCLIB does not have lyrics for this song.</Text></View> : result?.kind === 'instrumental' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Instrumental track</Text><Text style={styles.lyricsMessageText}>There are no lyrics for this song.</Text></View> : result?.kind === 'plain' ? <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{result.plainLyrics.split(/\r?\n/).map((line, index) => <Text key={`${index}-${line}`} style={styles.plainLyricLine}>{line || ' '}</Text>)}</ScrollView> : result?.kind === 'synced' ? <ScrollView ref={scrollRef} style={styles.lyricsScroll} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{syncedLines.map((line, index) => <SyncedLyricLine key={`${index}-${line.timestampMs}`} line={line.text} active={index === activeLine} onLayout={(event) => { lineOffsets.current[index] = event.nativeEvent.layout.y; }} />)}</ScrollView> : null}
-    </SafeAreaView>
+      {loading ? <View style={styles.lyricsMessage}><ActivityIndicator color="#000000" /><Text style={styles.lyricsMessageText}>Loading lyrics...</Text></View> : result?.kind === 'error' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Lyrics unavailable</Text><Text style={styles.lyricsMessageText}>{result.message}</Text><Pressable accessibilityRole="button" onPress={onRetry} style={styles.lyricsRetry}><Text style={styles.lyricsRetryText}>TRY AGAIN</Text></Pressable></View> : result?.kind === 'not-found' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>No lyrics found</Text><Text style={styles.lyricsMessageText}>LRCLIB does not have lyrics for this song.</Text></View> : result?.kind === 'instrumental' ? <View style={styles.lyricsMessage}><Text style={styles.lyricsMessageTitle}>Instrumental track</Text><Text style={styles.lyricsMessageText}>There are no lyrics for this song.</Text></View> : result?.kind === 'plain' ? <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false}>{result.plainLyrics.split(/\r?\n/).map((line, index) => <Text key={`${index}-${line}`} style={styles.plainLyricLine}>{line || ' '}</Text>)}</ScrollView> : result?.kind === 'synced' ? <ScrollView ref={scrollRef} style={styles.lyricsScroll} contentContainerStyle={styles.lyricsContent} showsVerticalScrollIndicator={false} onLayout={() => { scrollReady.current = true; scrollToActiveLine(); }} onContentSizeChange={() => { contentReady.current = true; scrollToActiveLine(); }}>{syncedLines.map((line, index) => <SyncedLyricLine key={`${index}-${line.timestampMs}`} line={line.text} active={index === activeLine} onPress={() => onSeekToTime(line.timestampMs / 1000)} onLayout={(event) => { lineOffsets.current[index] = event.nativeEvent.layout.y; if (index === activeLine) scrollToActiveLine(); }} />)}</ScrollView> : null}
+    </SafeAreaView> : null}
   </Modal>;
 }
 
-function SyncedLyricLine({ line, active, onLayout }: { line: string; active: boolean; onLayout: (event: { nativeEvent: { layout: { y: number } } }) => void }) {
+function SyncedLyricLine({ line, active, onPress, onLayout }: { line: string; active: boolean; onPress: () => void; onLayout: (event: { nativeEvent: { layout: { y: number } } }) => void }) {
   const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
 
   useEffect(() => {
@@ -155,7 +164,7 @@ function SyncedLyricLine({ line, active, onLayout }: { line: string; active: boo
     return () => animation.stop();
   }, [active, progress]);
 
-  return <View onLayout={onLayout} style={styles.syncedLyricRow}><Animated.Text style={[styles.syncedLyricText, { color: progress.interpolate({ inputRange: [0, 1], outputRange: ['#999999', '#000000'] }), opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }]}>{line || ' '}</Animated.Text></View>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={line || "Seek to this instrumental passage"} accessibilityHint="Seek to this line" onPress={onPress} onLayout={onLayout} style={styles.syncedLyricRow}><Animated.Text style={[styles.syncedLyricText, { color: progress.interpolate({ inputRange: [0, 1], outputRange: ['#999999', '#000000'] }), opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }]}>{line || ' '}</Animated.Text></Pressable>;
 }
 
 

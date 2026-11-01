@@ -228,7 +228,7 @@ function Mp3fyApp() {
     setNotificationsGranted,
   });
 
-  const { playTrack, addSong, playNext, playPrevious, updateQueuePreference, reorderUpcoming, removeUpcoming, clearUpcoming, togglePlayback, seek, displayedStatus, progress } = usePlaybackController({
+  const { playTrack, addSong, playNext, playPrevious, updateQueuePreference, reorderUpcoming, removeUpcoming, clearUpcoming, togglePlayback, seek, seekToTime, displayedStatus, progress } = usePlaybackController({
     player,
     status,
     folders,
@@ -329,7 +329,7 @@ function Mp3fyApp() {
           ) : screen.kind === 'queue' && queueCurrentRow ? (
             <QueueScreen current={queueCurrentRow} upcoming={upcomingRows} playing={status.playing} onBack={closeQueue} onMove={reorderUpcoming} onRemove={removeUpcoming} onClear={clearUpcoming} />
           ) : currentTrack ? (
-            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} onOpenQueue={openQueue} />
+            <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onSeekToTime={seekToTime} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} onOpenQueue={openQueue} />
           ) : null}
 
           {screen.kind !== 'player' && screen.kind !== 'queue' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={togglePlayback} onNext={playNext} /> : null}

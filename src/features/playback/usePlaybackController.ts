@@ -239,23 +239,27 @@ export function usePlaybackController({ player, status, folders, tracks, current
     } else player.play();
   }, [latestPlayback, observePlayback, pendingRestorePosition, player, restoreTimer, savePlayback, status.playing, tracker]);
 
-  const seek = useCallback((event: { nativeEvent: { locationX: number } }) => {
-    if (!progressWidth || !status.duration) return;
+  const seekToTime = useCallback((seconds: number) => {
+    if (!Number.isFinite(seconds) || !Number.isFinite(status.duration) || status.duration <= 0) return;
     observePlayback();
     pendingRestorePosition.current = null;
     if (restoreTimer.current) clearTimeout(restoreTimer.current);
-    const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / progressWidth));
-    const nextTime = ratio * status.duration;
+    const nextTime = Math.max(0, Math.min(status.duration, seconds));
     tracker.markSeek(nextTime);
     void tracker.flush().catch(() => undefined);
     player.seekTo(nextTime).then(() => {
       const playback = latestPlayback.current;
       if (playback) savePlayback({ ...playback, currentTime: Math.floor(nextTime) });
     }).catch(() => tracker.cancelSeek());
-  }, [latestPlayback, observePlayback, pendingRestorePosition, player, progressWidth, restoreTimer, savePlayback, status.duration, tracker]);
+  }, [latestPlayback, observePlayback, pendingRestorePosition, player, restoreTimer, savePlayback, status.duration, tracker]);
+
+  const seek = useCallback((event: { nativeEvent: { locationX: number } }) => {
+    if (!progressWidth || !status.duration) return;
+    seekToTime(event.nativeEvent.locationX / progressWidth * status.duration);
+  }, [progressWidth, seekToTime, status.duration]);
 
   const displayedStatus = pendingRestorePosition.current === null ? status : { ...status, currentTime: pendingRestorePosition.current };
   const progress = displayedStatus.duration ? Math.min(1, displayedStatus.currentTime / displayedStatus.duration) : 0;
 
-  return { startPlayback, playTrack, addSong, playNext, playPrevious, updateQueuePreference, reorderUpcoming, removeUpcoming, clearUpcoming, togglePlayback, seek, displayedStatus, progress };
+  return { startPlayback, playTrack, addSong, playNext, playPrevious, updateQueuePreference, reorderUpcoming, removeUpcoming, clearUpcoming, togglePlayback, seek, seekToTime, displayedStatus, progress };
 }
