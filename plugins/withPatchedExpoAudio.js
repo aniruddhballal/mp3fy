@@ -1,10 +1,17 @@
 const { withAndroidManifest, withGradleProperties, withProjectBuildGradle, withSettingsGradle } = require('@expo/config-plugins');
 
 const AUDIO_PROJECT = "include ':expo-audio-local'\nproject(':expo-audio-local').projectDir = new File(rootDir, '../node_modules/expo-audio/android')";
+// Media3 1.11 fixes a controller crash when an old timeline is merged with a newer song index.
+// Keep all Media3 artifacts aligned; mixed versions of its modules are unsupported.
 const AUDIO_SUBSTITUTION = `
 
 allprojects {
   configurations.configureEach {
+    resolutionStrategy.eachDependency { details ->
+      if (details.requested.group == 'androidx.media3') {
+        details.useVersion '1.11.1'
+      }
+    }
     resolutionStrategy.dependencySubstitution {
       substitute module('expo.modules.audio:expo.modules.audio') using project(':expo-audio-local')
     }
