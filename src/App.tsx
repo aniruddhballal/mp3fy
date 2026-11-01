@@ -4,10 +4,7 @@ import { useAudioPlaylist, useAudioPlaylistStatus } from 'expo-audio';
 import { useFonts } from 'expo-font';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
-  Pressable,
-  Text,
   View,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
@@ -21,7 +18,6 @@ import { FoldersScreen, MiniPlayer, SongsScreen } from './screens/LibraryScreens
 import { FolderDialogs } from './components/FolderDialogs';
 import { upcomingFrom } from './features/playback/queueOrder';
 import { type PlaybackMode } from './features/playback/playbackOrder';
-import { APP_VERSION } from './config/appVersion';
 import type { Folder, RepeatMode, SavedPlayback, Track, TrackMetadata } from './types/domain';
 import { fallbackMetadata } from './services/trackMetadata';
 import { activateLockScreen, deactivateLockScreen, updateLockScreen } from './services/mediaControls';
@@ -33,6 +29,7 @@ import { PLAYBACK_KEY, SHUFFLE_HISTORY_KEY, usePlaybackPersistence } from './fea
 import { usePlaybackController } from './features/playback/usePlaybackController';
 import { useTrackArtwork } from './features/playback/useTrackArtwork';
 import { useAppStartup } from './features/app/useAppStartup';
+import { StartupScreen } from './components/StartupScreen';
 
 const PLAYBACK_STATUS_UPDATE_INTERVAL_MS = 250;
 
@@ -301,13 +298,7 @@ function Mp3fyApp() {
         <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
         <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
           <View style={styles.container}>
-            <View style={styles.startupLoading}>
-              {!iconsLoaded || !isLibraryReady || isBackupSetupBusy ? <ActivityIndicator color="#000000" /> : null}
-              <Text style={styles.title}>{!iconsLoaded ? 'Loading interface...' : isLibraryReady ? 'Choose a Wrapped backup folder' : 'Loading library...'}</Text>
-              {iconsLoaded && isLibraryReady ? <Text style={styles.description}>mp3fy keeps one required Wrapped backup file in this folder. Select the same folder after reinstalling to restore your listening history.</Text> : null}
-              {iconsLoaded && isLibraryReady && !isBackupSetupBusy ? <Pressable accessibilityRole="button" onPress={() => { void selectWrappedBackupFolder(); }} style={styles.button}><Text style={styles.buttonText}>SELECT BACKUP FOLDER</Text></Pressable> : null}
-              {backupSetupMessage ? <Text style={styles.notice}>{backupSetupMessage}</Text> : null}
-            </View>
+            <StartupScreen iconsLoaded={iconsLoaded} libraryReady={isLibraryReady} backupReady={isWrappedBackupReady} backupBusy={isBackupSetupBusy} backupMessage={backupSetupMessage} onSelectBackup={() => { void selectWrappedBackupFolder(); }} />
           </View>
         </SafeAreaView>
 

@@ -46,7 +46,6 @@ export const styles = StyleSheet.create({
   trackArtist: { color: '#666666', fontSize: 12, marginTop: 4 },
   search: { borderBottomColor: '#000000', borderBottomWidth: 1, color: '#000000', fontSize: 15, marginTop: 18, paddingBottom: 9, paddingHorizontal: 0 },
   loading: { alignItems: 'center', flex: 1, justifyContent: 'center' },
-  startupLoading: { alignItems: 'center', flex: 1, justifyContent: 'center' },
   emptyState: { alignItems: 'flex-start', flex: 1, justifyContent: 'center' },
   rule: { backgroundColor: '#000000', height: 4, marginBottom: 20, width: 42 },
   title: { color: '#000000', fontSize: 24, fontWeight: '700' },
