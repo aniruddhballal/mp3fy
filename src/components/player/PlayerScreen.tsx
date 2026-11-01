@@ -45,10 +45,9 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsResult, setLyricsResult] = useState<LyricsResult | null>(null);
-  const [lyricsInlineError, setLyricsInlineError] = useState(false);
   const lyricsRequest = useRef(0);
 
-  const requestLyrics = useCallback((openAfterLoad = false) => {
+  const requestLyrics = useCallback(() => {
     if (lyricsLoading) return;
     const requestId = ++lyricsRequest.current;
     setLyricsLoading(true);
@@ -62,26 +61,18 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
       if (requestId !== lyricsRequest.current) return;
       setLyricsResult(result);
       setLyricsLoading(false);
-      if (openAfterLoad) {
-        if (result.kind === 'error' && result.reason === 'network') {
-          setLyricsInlineError(true);
-        } else {
-          setLyricsInlineError(false);
-          setLyricsOpen(true);
-        }
-      }
+    }).catch(() => {
+      if (requestId !== lyricsRequest.current) return;
+      setLyricsResult({ kind: 'error', message: LYRICS_NETWORK_ERROR_MESSAGE, reason: 'network' });
+      setLyricsLoading(false);
     });
   }, [lyricsLoading, metadata.album, metadata.artist, metadata.title, status.duration]);
 
   const openLyrics = useCallback(() => {
-    setLyricsInlineError(false);
-    if (!lyricsResult && !lyricsLoading) {
-      requestLyrics(true);
-    } else if (lyricsResult?.kind === 'error' && lyricsResult.reason === 'network' && !lyricsLoading) {
-      requestLyrics(true);
-    } else {
-      setLyricsOpen(true);
-    }
+    // A tap must always have an immediate, visible result. Fetching belongs inside
+    // the modal so a transient network failure can be explained and retried there.
+    setLyricsOpen(true);
+    if ((!lyricsResult || lyricsResult.kind === 'error') && !lyricsLoading) requestLyrics();
   }, [lyricsLoading, lyricsResult, requestLyrics]);
 
   useEffect(() => {
@@ -89,7 +80,6 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
     setLyricsOpen(false);
     setLyricsLoading(false);
     setLyricsResult(null);
-    setLyricsInlineError(false);
     return () => { lyricsRequest.current += 1; };
   }, [track.uri]);
 
@@ -98,7 +88,6 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
       <ScreenHeader right={<View style={styles.playerHeaderActions}><MarqueeText alignRight style={styles.playerHeaderFolderViewport} text={track.folderName} textStyle={styles.playerHeaderFolderText} /></View>} />
       <View style={styles.playerArt}><AlbumArt label={metadata.title} size={280} uri={artwork} loading={artworkLoading} /></View>
       <View style={styles.playerTitleRow}><MarqueeText style={styles.playerTitleViewport} text={metadata.title} textStyle={styles.playerTitle} /><View style={styles.playerTitleActions}><Pressable accessibilityRole="button" accessibilityLabel="Show lyrics" onPress={openLyrics} style={({ pressed }) => [styles.lyricsButton, pressed && styles.pressed]}><Text style={styles.lyricsButtonText}>LYRICS</Text></Pressable><QueueButton onPress={onOpenQueue} /></View></View>
-      {lyricsInlineError ? <View style={styles.lyricsInlineNotice}><Text style={styles.lyricsInlineNoticeText}>{LYRICS_NETWORK_ERROR_MESSAGE}</Text></View> : null}
       {metadata.artist ? <MarqueeText style={styles.playerArtistViewport} text={metadata.artist} textStyle={styles.playerArtist} /> : null}
       {metadata.album || metadata.trackNumber ? <View style={styles.metadataDetails}>
         {metadata.album ? <MarqueeText style={styles.metadataAlbumViewport} text={metadata.album} textStyle={styles.metadataItem} /> : null}
@@ -107,7 +96,7 @@ export function PlayerScreen({ track, metadata, artwork, artworkLoading, status,
       <Pressable accessibilityRole="adjustable" onLayout={onProgressLayout} onPress={onSeek} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress * 100}%` }]} /></Pressable>
       <View style={styles.timeRow}><Text style={styles.timeText}>{formatTime(status.currentTime)}</Text><Text style={styles.timeText}>{formatTime(status.duration)}</Text></View>
       <View style={styles.transportRow}><PlaybackOrderButton mode={mode} onPress={() => onModeChange(nextPlaybackMode(mode))} /><SmallButton label="|<" transport onPress={onPrevious} /><ActionButton label={status.playing ? 'PAUSE' : 'PLAY'} transport onPress={onTogglePlay} /><SmallButton label="|>" transport onPress={onNext} /><IconButton icon={repeatMode === 'one' ? 'repeatOne' : 'repeatAll'} transport accessibilityLabel={repeatMode === 'one' ? 'Repeat current song. Switch to repeat folder' : 'Repeat folder. Switch to repeat current song'} active={repeatMode === 'one'} onPress={() => onRepeatChange(repeatMode === 'one' ? 'all' : 'one')} /></View>
-      <LyricsModal visible={lyricsOpen} title={metadata.title} artist={metadata.artist} result={lyricsResult} loading={lyricsLoading} currentTime={status.currentTime} onSeekToTime={onSeekToTime} onClose={() => setLyricsOpen(false)} onRetry={requestLyrics} />
+      <LyricsModal visible={lyricsOpen} title={metadata.title} artist={metadata.artist} result={lyricsResult} loading={lyricsLoading} currentTime={status.currentTime} onSeekToTime={onSeekToTime} onClose={() => setLyricsOpen(false)} onRetry={() => requestLyrics()} />
     </ScrollView>
   );
 }

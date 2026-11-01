@@ -111,6 +111,38 @@ test('returns not-found for LRCLIB 404 and a successful empty record', async () 
   assert.equal(emptyResult.kind, 'not-found');
 });
 
+test('retries transient network failures before returning a successful response', async () => {
+  let attempts = 0;
+  const result = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => {
+    attempts += 1;
+    if (attempts < 3) throw new Error('temporary connection reset');
+    return response(basePayload({ plainLyrics: 'Recovered lyrics' }));
+  });
+
+  assert.equal(attempts, 3);
+  assert.equal(result.kind, 'plain');
+  assert.equal(result.plainLyrics, 'Recovered lyrics');
+});
+
+test('retries transient server responses but does not retry a missing song', async () => {
+  let attempts = 0;
+  const recovered = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => {
+    attempts += 1;
+    return attempts < 2 ? response({}, 503, false) : response(basePayload({ plainLyrics: 'Recovered lyrics' }));
+  });
+
+  assert.equal(attempts, 2);
+  assert.equal(recovered.kind, 'plain');
+
+  attempts = 0;
+  const missing = await fetchLyrics({ title: 'Missing', artist: 'Artist' }, async () => {
+    attempts += 1;
+    return response({}, 404, false);
+  });
+  assert.equal(attempts, 1);
+  assert.equal(missing.kind, 'not-found');
+});
+
 test('returns simple user-facing errors for HTTP, network, invalid JSON, and invalid response failures', async () => {
   const http = await fetchLyrics({ title: 'Song', artist: 'Artist' }, async () => response({}, 503, false));
   assert.deepEqual(http, {
