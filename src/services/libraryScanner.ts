@@ -1,4 +1,5 @@
 import { Directory, File } from 'expo-file-system';
+import { NativeModules, Platform } from 'react-native';
 import type { Folder, Track } from '../types/domain';
 
 const FOLDER_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
@@ -44,6 +45,10 @@ function folderImagePriority(file: File) {
 
 export async function scanFolder(folder: Folder): Promise<{ folder: Folder; tracks: Track[] }> {
   try {
+    if (Platform.OS === 'android' && NativeModules.Mp3fyLibraryScanner) {
+      const result: { imageUri: string | null; tracks: Track[] } = await NativeModules.Mp3fyLibraryScanner.scanFolder(folder.uri, folder.name);
+      return { folder: { ...folder, imageUri: result.imageUri }, tracks: result.tracks };
+    }
     await yieldToEventLoop();
     const directory = new Directory(folder.uri);
     const items = directory.list();

@@ -2,7 +2,6 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { titleAndArtistFromFilename } from '../features/playback/playbackOrder';
 import type { Track, TrackMetadata } from '../types/domain';
 
-const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const MAX_METADATA_READ_BYTES = 4 * 1024 * 1024;
 const MAX_ARTWORK_CACHE_FILES = 48;
 const MAX_ARTWORK_CACHE_BYTES = 24 * 1024 * 1024;
@@ -61,39 +60,7 @@ function decodeId3Text(bytes: Uint8Array, encoding: number): string {
   return String.fromCharCode(...value).replace(/\0/g, '').trim();
 }
 
-function encodeBase64(bytes: Uint8Array): string {
-  let output = '';
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index];
-    const second = index + 1 < bytes.length ? bytes[index + 1] : 0;
-    const third = index + 2 < bytes.length ? bytes[index + 2] : 0;
-    output += BASE64[first >> 2];
-    output += BASE64[((first & 3) << 4) | (second >> 4)];
-    output += index + 1 < bytes.length ? BASE64[((second & 15) << 2) | (third >> 6)] : '=';
-    output += index + 2 < bytes.length ? BASE64[third & 63] : '=';
-  }
-  return output;
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const clean = value.replace(/\s/g, '').replace(/=+$/, '');
-  const bytes = new Uint8Array(Math.floor((clean.length * 3) / 4));
-  let buffer = 0;
-  let bitCount = 0;
-  let offset = 0;
-  for (const character of clean) {
-    const digit = BASE64.indexOf(character);
-    if (digit < 0) continue;
-    buffer = (buffer << 6) | digit;
-    bitCount += 6;
-    if (bitCount >= 8) {
-      bitCount -= 8;
-      bytes[offset] = (buffer >> bitCount) & 0xff;
-      offset += 1;
-    }
-  }
-  return bytes.slice(0, offset);
-}
+type EmbeddedArtwork = { mime: string; bytes: Uint8Array };
 
 function artworkCacheKey(uri: string): string {
   let hash = 0;
@@ -101,15 +68,13 @@ function artworkCacheKey(uri: string): string {
   return Math.abs(hash).toString(16);
 }
 
-export async function materializeArtwork(dataUri: string, trackUri: string): Promise<string | null> {
-  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/s);
-  if (!match) return null;
+export async function materializeArtwork(artwork: EmbeddedArtwork, trackUri: string): Promise<string | null> {
   try {
-    const extension = match[1].split('/')[1] || 'jpg';
+    const extension = artwork.mime.split('/')[1] || 'jpg';
     const file = new File(Paths.cache, 'mp3fy-artwork', `${artworkCacheKey(trackUri)}.${extension}`);
     if (!file.exists) {
       file.create({ intermediates: true });
-      file.write(decodeBase64(match[2]));
+      file.write(artwork.bytes);
     }
     return file.uri;
   } catch {
@@ -150,7 +115,7 @@ export function pruneArtworkCache() {
   }
 }
 
-function parseEmbeddedArtwork(bytes: Uint8Array): string | null {
+function parseEmbeddedArtwork(bytes: Uint8Array): EmbeddedArtwork | null {
   if (bytes.length < 10 || readAscii(bytes, 0, 3) !== 'ID3') return null;
   const version = bytes[3];
   if (version < 2 || version > 4) return null;
@@ -190,7 +155,7 @@ function parseEmbeddedArtwork(bytes: Uint8Array): string | null {
       } else {
         position = findZero(bytes, position) + 1;
       }
-      if (position < payloadEnd) return `data:${mime};base64,${encodeBase64(bytes.slice(position, payloadEnd))}`;
+      if (position < payloadEnd) return { mime, bytes: bytes.slice(position, payloadEnd) };
     }
     cursor = payloadEnd;
   }
@@ -229,7 +194,7 @@ function parseEmbeddedMetadata(bytes: Uint8Array, fallback: TrackMetadata): Trac
   return metadata;
 }
 
-export async function loadEmbeddedTrackDetails(uri: string, fallback: TrackMetadata): Promise<{ artwork: string | null; metadata: TrackMetadata }> {
+export async function loadEmbeddedTrackDetails(uri: string, fallback: TrackMetadata): Promise<{ artwork: EmbeddedArtwork | null; metadata: TrackMetadata }> {
   try {
     const file = new File(uri);
     const handle = file.open();

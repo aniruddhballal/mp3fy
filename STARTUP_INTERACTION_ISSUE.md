@@ -1,5 +1,9 @@
 # Startup interaction issue
 
+## 1.6.14 follow-up
+
+Android folder traversal now runs on a native background worker instead of issuing synchronous storage-provider listings on the JavaScript thread. Cached folder contents remain available during a background refresh, and embedded artwork no longer goes through a base64 encode/decode round trip. On the connected phone, the user confirmed that a folder opened without the previous delay when tapped immediately after appearing on a cold launch. The exact source of every previously missed tap was not isolated; this confirms the reported interaction improved in that test rather than proving all startup work is non-blocking.
+
 ## Original report
 
 The following is the original problem description, preserved verbatim:
