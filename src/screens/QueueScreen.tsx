@@ -2,28 +2,12 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { APP_VERSION } from '../config/appVersion';
+import { PlayingBars } from '../components/PlayingBars';
 
 export type QueueRow = { uri: string; title: string; artist: string };
 
 const ROW_HEIGHT = 68;
 const EDGE_SIZE = 64;
-
-function PlayingBars({ playing }: { playing: boolean }) {
-  const bars = useRef([new Animated.Value(0.45), new Animated.Value(0.85), new Animated.Value(0.6)]).current;
-  useEffect(() => {
-    if (!playing) {
-      bars.forEach((bar) => bar.setValue(0.35));
-      return;
-    }
-    const animations = bars.map((bar, index) => Animated.loop(Animated.sequence([
-      Animated.timing(bar, { toValue: index === 1 ? 0.3 : 1, duration: 260 + index * 80, useNativeDriver: true }),
-      Animated.timing(bar, { toValue: index === 1 ? 1 : 0.3, duration: 330 + index * 70, useNativeDriver: true }),
-    ])));
-    animations.forEach((animation) => animation.start());
-    return () => animations.forEach((animation) => animation.stop());
-  }, [bars, playing]);
-  return <View accessibilityLabel={playing ? 'Playing' : 'Paused'} style={styles.playingBars}>{bars.map((bar, index) => <Animated.View key={index} style={[styles.playingBar, { transform: [{ scaleY: bar }] }]} />)}</View>;
-}
 
 function DragHandle({ index, title, onStart, onMove, onEnd, onCancel, onMoveBy }: { index: number; title: string; onStart: (index: number, pageY: number) => void; onMove: (dy: number, pageY: number) => void; onEnd: () => void; onCancel: () => void; onMoveBy: (from: number, to: number) => void }) {
   const responder = useMemo(() => PanResponder.create({
@@ -131,8 +115,6 @@ const styles = StyleSheet.create({
   headerSubtitle: { color: '#000000', fontSize: 10, fontWeight: '700', letterSpacing: 1.5, marginTop: 4 },
   headerButton: { alignItems: 'center', borderColor: '#000000', borderWidth: 1, height: 40, justifyContent: 'center', width: 40 },
   currentCard: { alignItems: 'center', backgroundColor: '#F2F2F2', borderBottomColor: '#000000', borderBottomWidth: 1, flexDirection: 'row', minHeight: 92, paddingHorizontal: 12, paddingVertical: 14 },
-  playingBars: { alignItems: 'center', flexDirection: 'row', gap: 3, height: 28, justifyContent: 'center', marginRight: 14, width: 30 },
-  playingBar: { backgroundColor: '#000000', height: 24, width: 5 },
   currentCopy: { flex: 1, minWidth: 0 },
   eyebrow: { color: '#555555', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
   currentTitle: { color: '#000000', fontSize: 16, fontWeight: '700', marginTop: 4 },

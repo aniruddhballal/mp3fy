@@ -10,7 +10,7 @@ The current source includes Android folder selection, recursive MP3 discovery, p
 
 The folder list, folder artwork locations, and discovered track list are saved in app storage. On later launches, the saved library appears as soon as it is read; a scan then refreshes it for files added or removed since the last launch. Adding or removing a folder also updates the saved library. The first launch after upgrading from an older build still needs one full scan to create this snapshot.
 
-Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. Search matches titles, artists, and filenames. The chosen playback order is independent of the song list's display order.
+Songs in a folder are listed alphabetically by title. Each row shows the title first and the artist beneath it, using the same filename fallback and available ID3 metadata as the player. The current song has a playing or paused indicator, and returning from the player preserves the folder's scroll position and search. Search matches titles, artists, and filenames. The chosen playback order is independent of the song list's display order.
 
 ## Source layout
 
@@ -30,7 +30,7 @@ Open **Queue** from the home screen, a folder's song list, or the full player wh
 
 The full-screen player has a **LYRICS** action beside the current song title. Lyrics are fetched from LRCLIB only after the user taps it, and only for the current track. Synced LRC lines follow playback time and scroll automatically, including when opened partway through a song. Tap a synced line to seek to it; playback stays paused or playing as it was. Plain lyrics, instrumental tracks, missing results, and network failures each have a dedicated fallback state. Lyrics are not fetched for queued or background tracks.
 
-The current Android release is version `1.6.17` (`versionCode` `62`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
+The current Android release is version `1.6.18` (`versionCode` `63`). APK files keep the stable build filename `app-release.apk`; release identity is maintained internally in `app.json`. A copy of the verified optimized release is checked in at the project root as `mp3fy.apk`.
 
 ## mp3fy Wrapped
 
@@ -40,7 +40,7 @@ Each song is identified by a SHA-256 hash of its normalized MP3 filename, so cop
 
 Stats are stored locally in SQLite as per-track totals rather than a growing log of every playback event. Per-track day, week, and month rankings are kept only for their current periods. Per-track yearly and all-time totals remain available. One small total per day and month is retained for annual milestones. This keeps storage growth linear with distinct tracks and years, and does not modify MP3 files.
 
-Wrapped requires one backup folder before the app can be used. It keeps a single `mp3fy-wrapped.json` in that folder; the file survives uninstalling the app. On a fresh install, select the same folder and mp3fy automatically imports the existing JSON before playback can begin. New listening is then written back to that same file automatically, within about a minute and when the app goes to the background. A first-time folder remains empty until Wrapped history is recorded. The internal SQLite database is the live working store while the app is installed; the required JSON is its portable reinstall backup.
+Wrapped requires one backup folder before the app can be used. It keeps a single `mp3fy-wrapped.json` in that folder; the file survives uninstalling the app. On a fresh install, select the same folder and mp3fy automatically imports the existing JSON before playback can begin. New listening is then written back to that same file automatically, within about a minute and when the app goes to the background. The **Save Backup** button records current listening, saves a fresh snapshot, and reads the file back to verify it; the displayed time is the snapshot time. A first-time folder remains empty until Wrapped history is recorded or a manual backup is saved. The internal SQLite database is the live working store while the app is installed; the required JSON is its portable reinstall backup.
 
 ## Planned workflow
 

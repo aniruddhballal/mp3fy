@@ -5,12 +5,14 @@ import { useFonts } from 'expo-font';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
+  Keyboard,
+  StyleSheet,
   View,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar as SystemStatusBar } from 'react-native';
 import { initializeWrappedStore } from './features/wrapped/wrappedStore';
-import { chooseWrappedBackupFolder, initializeWrappedBackup, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
+import { chooseWrappedBackupFolder, initializeWrappedBackup, saveAndVerifyWrappedBackup, saveWrappedBackupNow } from './features/wrapped/wrappedBackup';
 import { useWrappedTracking } from './features/wrapped/useWrappedTracking';
 import { WrappedScreen } from './screens/WrappedScreen';
 import { QueueScreen, type QueueRow } from './screens/QueueScreen';
@@ -73,6 +75,12 @@ function Mp3fyApp() {
   const { currentMetadata, setCurrentMetadata, currentArtwork, setCurrentArtwork, isArtworkLoading, setIsArtworkLoading, loadArtwork } = useTrackArtwork({ player, tracker, artworkCache, metadataCache });
   currentMetadataRef.current = currentMetadata;
 
+  const saveWrappedBackup = useCallback(async () => {
+    observePlayback();
+    await tracker.flush();
+    return saveAndVerifyWrappedBackup();
+  }, [observePlayback, tracker]);
+
   const selectWrappedBackupFolder = useCallback(async () => {
     setIsBackupSetupBusy(true);
     setBackupSetupMessage('');
@@ -122,6 +130,15 @@ function Mp3fyApp() {
     onCloseFolderConfirmation: () => setFolderToConfirm(null),
   });
 
+  // Keep the most recently viewed folder mounted while another screen is open.
+  const lastSongFolder = useRef<string | null>(null);
+  if (screen.kind === 'songs') lastSongFolder.current = screen.folderUri;
+  const songFolderUri = screen.kind === 'songs' ? screen.folderUri : lastSongFolder.current;
+
+  useEffect(() => {
+    if (screen.kind !== 'songs') Keyboard.dismiss();
+  }, [screen.kind]);
+
   const queueTitleFor = useCallback((track: Track) => track.uri === currentTrack?.uri
     ? currentMetadata?.title ?? metadataCache.get(track.uri)?.title ?? fallbackMetadata(track).title
     : metadataCache.get(track.uri)?.title ?? fallbackMetadata(track).title, [currentMetadata, currentTrack?.uri, metadataCache]);
@@ -138,9 +155,8 @@ function Mp3fyApp() {
   })), [folders, trackCounts]);
 
   const selectedFolder = useMemo(() => {
-    if (screen.kind !== 'songs') return null;
-    return folders.find((folder) => folder.uri === screen.folderUri) ?? null;
-  }, [folders, screen]);
+    return folders.find((folder) => folder.uri === songFolderUri) ?? null;
+  }, [folders, songFolderUri]);
 
   const selectedFolderTracks = useMemo(() => {
     if (!selectedFolder) return [];
@@ -311,17 +327,20 @@ function Mp3fyApp() {
       <SystemStatusBar barStyle="dark-content" backgroundColor="#FFFFFF" translucent={false} />
       <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
         <View style={styles.container}>
+          <View style={styles.screen}>
+          {selectedFolder ? <View pointerEvents={screen.kind === 'songs' ? 'auto' : 'none'} accessibilityElementsHidden={screen.kind !== 'songs'} importantForAccessibility={screen.kind === 'songs' ? 'auto' : 'no-hide-descendants'} style={[StyleSheet.absoluteFill, screen.kind !== 'songs' && { opacity: 0 }]}>
+            <SongsScreen key={selectedFolder.uri} folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} currentMetadata={currentMetadata} metadataCache={metadataCache} isScanning={scanningFolderUris.has(selectedFolder.uri)} playing={screen.kind === 'songs' && status.playing} onPlayTrack={playTrack} onOpenQueue={openQueue} />
+          </View> : null}
           {screen.kind === 'folders' ? (
             <FoldersScreen folders={folderCounts} tracksCount={tracks.length} hasQueue={Boolean(currentTrack)} isScanning={isScanning} scanningFolderUris={scanningFolderUris} notice={notice} onAddFolder={addFolder} onAddSong={addSong} onOpenFolder={openFolder} onLongPressFolder={setFolderActions} onOpenWrapped={openWrapped} onOpenQueue={openQueue} />
-          ) : screen.kind === 'songs' && selectedFolder ? (
-            <SongsScreen folder={selectedFolder} tracks={selectedFolderTracks} currentTrack={currentTrack} currentMetadata={currentMetadata} metadataCache={metadataCache} isScanning={scanningFolderUris.has(selectedFolder.uri)} onPlayTrack={playTrack} onOpenQueue={openQueue} />
-          ) : screen.kind === 'wrapped' ? (
-            <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} />
+          ) : screen.kind === 'songs' ? null : screen.kind === 'wrapped' ? (
+            <WrappedScreen revision={wrappedRevision} onBack={closeWrapped} onSaveBackup={saveWrappedBackup} />
           ) : screen.kind === 'queue' && queueCurrentRow ? (
             <QueueScreen current={queueCurrentRow} upcoming={upcomingRows} playing={status.playing} onBack={closeQueue} onMove={reorderUpcoming} onRemove={removeUpcoming} onClear={clearUpcoming} />
           ) : currentTrack ? (
             <PlayerScreen track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} status={displayedStatus} progress={progress} progressWidth={progressWidth} mode={mode} repeatMode={repeatMode} onSeek={seek} onSeekToTime={seekToTime} onProgressLayout={(event) => setProgressWidth(event.nativeEvent.layout.width)} onPrevious={playPrevious} onNext={playNext} onTogglePlay={togglePlayback} onModeChange={updateQueuePreference} onRepeatChange={setRepeatMode} onOpenQueue={openQueue} />
           ) : null}
+          </View>
 
           {screen.kind !== 'player' && screen.kind !== 'queue' && currentTrack ? <MiniPlayer track={currentTrack} metadata={currentMetadata ?? fallbackMetadata(currentTrack)} artwork={currentArtwork} artworkLoading={isArtworkLoading} playing={status.playing} onOpen={openPlayerFromMini} onTogglePlay={togglePlayback} onNext={playNext} /> : null}
         </View>

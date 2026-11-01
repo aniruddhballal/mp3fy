@@ -3,6 +3,7 @@ import { readAsStringAsync, StorageAccessFramework } from 'expo-file-system/lega
 import { exportWrappedBackup, restoreWrappedBackup } from './wrappedStore';
 
 const DESTINATION_KEY = 'mp3fy.wrappedBackupDestination.v2';
+const VERIFIED_KEY = 'mp3fy.wrappedBackupVerifiedAt.v1';
 const BACKUP_FILE_NAME = 'mp3fy-wrapped.json';
 const BACKUP_INTERVAL_MS = 60_000;
 
@@ -75,6 +76,7 @@ export async function chooseWrappedBackupFolder(): Promise<boolean> {
   }
 
   const next: Destination = { directoryUri: permission.directoryUri, fileUri };
+  await AsyncStorage.removeItem(VERIFIED_KEY);
   await AsyncStorage.setItem(DESTINATION_KEY, JSON.stringify(next));
   destination = next;
   writtenRevision = pendingRevision;
@@ -84,6 +86,11 @@ export async function chooseWrappedBackupFolder(): Promise<boolean> {
 export function noteWrappedHistoryChanged(): void {
   pendingRevision += 1;
   scheduleTimer();
+}
+
+export async function getLastVerifiedWrappedBackup(): Promise<string | null> {
+  const timestamp = await AsyncStorage.getItem(VERIFIED_KEY);
+  return timestamp && Number.isFinite(Date.parse(timestamp)) ? timestamp : null;
 }
 
 export async function saveWrappedBackupNow(): Promise<boolean> {
@@ -102,6 +109,39 @@ export async function saveWrappedBackupNow(): Promise<boolean> {
     writtenRevision = Math.max(writtenRevision, revision);
     scheduleTimer();
     return true;
+  });
+  activeWrite = nextWrite.then(() => undefined, () => undefined);
+  return nextWrite.catch((error) => {
+    scheduleTimer();
+    throw error;
+  });
+}
+
+/** Write and read back a fresh snapshot, even when the automatic backup appears current. */
+export async function saveAndVerifyWrappedBackup(): Promise<string> {
+  clearBackupTimer();
+  const nextWrite = activeWrite.catch(() => undefined).then(async () => {
+    clearBackupTimer();
+    if (!destination) throw new Error('No backup folder selected');
+    const target = destination;
+    const revision = pendingRevision;
+    const snapshot = await exportWrappedBackup();
+    const fileUri = await findBackupFile(target.directoryUri)
+      ?? await StorageAccessFramework.createFileAsync(target.directoryUri, 'mp3fy-wrapped', 'application/json');
+    // A failed or partial overwrite must not leave an old verification on the next visit.
+    await AsyncStorage.removeItem(VERIFIED_KEY);
+    await StorageAccessFramework.writeAsStringAsync(fileUri, snapshot);
+    if (await readAsStringAsync(fileUri) !== snapshot) throw new Error('Backup verification failed');
+    const saved: unknown = JSON.parse(snapshot);
+    if (!saved || typeof saved !== 'object' || typeof (saved as { createdAt?: unknown }).createdAt !== 'string') throw new Error('Invalid backup timestamp');
+    const timestamp = (saved as { createdAt: string }).createdAt;
+    if (!Number.isFinite(Date.parse(timestamp))) throw new Error('Invalid backup timestamp');
+    await AsyncStorage.setItem(DESTINATION_KEY, JSON.stringify({ directoryUri: target.directoryUri, fileUri } satisfies Destination));
+    await AsyncStorage.setItem(VERIFIED_KEY, timestamp);
+    destination = { directoryUri: target.directoryUri, fileUri };
+    writtenRevision = Math.max(writtenRevision, revision);
+    scheduleTimer();
+    return timestamp;
   });
   activeWrite = nextWrite.then(() => undefined, () => undefined);
   return nextWrite.catch((error) => {

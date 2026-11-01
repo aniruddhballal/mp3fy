@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getAvailableYears, getWrappedSummary, localDay, weekStart, type WrappedPeriod, type WrappedRank, type WrappedSummary } from '../features/wrapped/wrappedStore';
 import { APP_VERSION } from '../config/appVersion';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { getLastVerifiedWrappedBackup } from '../features/wrapped/wrappedBackup';
 
 const TABS: { key: WrappedPeriod; label: string }[] = [
   { key: 'day', label: 'DAY' },
@@ -54,9 +56,10 @@ function RankedList({ title, entries, metric }: { title: string; entries: Wrappe
   );
 }
 
-export function WrappedScreen({ revision, onBack }: {
+export function WrappedScreen({ revision, onBack, onSaveBackup }: {
   revision: number;
   onBack: () => void;
+  onSaveBackup: () => Promise<string>;
 }) {
   const [period, setPeriod] = useState<WrappedPeriod>('year');
   const [today, setToday] = useState(() => localDay(new Date()));
@@ -66,11 +69,23 @@ export function WrappedScreen({ revision, onBack }: {
   const [loadedKey, setLoadedKey] = useState('');
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [savingBackup, setSavingBackup] = useState(false);
+  const [backupMessage, setBackupMessage] = useState('');
+  const [backupFailed, setBackupFailed] = useState(false);
+  const backupRequest = useRef(0);
   const key = period === 'day' ? today
     : period === 'week' ? weekStart(today)
       : period === 'month' ? today.slice(0, 7)
         : period === 'year' ? selectedYear ?? today.slice(0, 4) : '*';
   const selectedIndex = years.indexOf(key);
+
+  useEffect(() => {
+    let live = true;
+    void getLastVerifiedWrappedBackup().then((timestamp) => {
+      if (live && backupRequest.current === 0 && timestamp) setBackupMessage(new Date(timestamp).toLocaleString());
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setToday(localDay(new Date())), 60_000);
@@ -146,6 +161,28 @@ export function WrappedScreen({ revision, onBack }: {
         </View> : null}
       </>}
 
+      <View style={styles.backupSection}>
+        <View style={styles.backupCopy}>
+          <Text numberOfLines={1} style={styles.backupTitle}>YOUR LISTENING HISTORY</Text>
+          <Text accessibilityLiveRegion="polite" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={[styles.backupStatus, backupFailed && styles.backupError]}>{backupMessage || '—'}</Text>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Save Wrapped backup" disabled={savingBackup} onPress={() => {
+          backupRequest.current += 1;
+          setSavingBackup(true);
+          setBackupFailed(false);
+          setBackupMessage('');
+          void onSaveBackup().then((timestamp) => {
+            setBackupMessage(new Date(timestamp).toLocaleString());
+          }).catch(() => {
+            setBackupFailed(true);
+            setBackupMessage('Backup failed');
+          }).finally(() => setSavingBackup(false));
+        }} style={({ pressed }) => [styles.backupButton, (pressed || savingBackup) && styles.pressed]}>
+          {savingBackup ? <ActivityIndicator color="#FFFFFF" size="small" /> : <MaterialCommunityIcons name="content-save-outline" size={20} color="#FFFFFF" />}
+          <Text style={styles.backupButtonText}>{savingBackup ? 'SAVING…' : 'SAVE BACKUP'}</Text>
+        </Pressable>
+      </View>
+
     </ScrollView>
   );
 }
@@ -201,4 +238,11 @@ const styles = StyleSheet.create({
   milestoneLabel: { color: '#000000', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   milestoneDetail: { color: '#666666', fontSize: 10, marginTop: 4 },
   milestoneValue: { color: '#000000', fontSize: 16, fontWeight: '700', marginLeft: 10 },
+  backupSection: { alignItems: 'stretch', borderTopColor: '#000000', borderTopWidth: 1, flexDirection: 'row', gap: 8, marginTop: 36, paddingTop: 20 },
+  backupCopy: { flex: 1, justifyContent: 'center', minHeight: 48, minWidth: 0 },
+  backupTitle: { color: '#555555', fontSize: 9, fontWeight: '700', letterSpacing: 0.4 },
+  backupButton: { alignItems: 'center', backgroundColor: '#000000', flex: 1, flexDirection: 'row', gap: 7, justifyContent: 'center', minHeight: 48, paddingHorizontal: 8 },
+  backupButtonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
+  backupStatus: { color: '#444444', fontSize: 11, lineHeight: 16, marginTop: 4 },
+  backupError: { color: '#9A2424' },
 });

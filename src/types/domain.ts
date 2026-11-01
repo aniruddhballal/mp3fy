@@ -17,6 +17,6 @@ export type SavedPlayback = {
 export type Screen =
   | { kind: 'folders' }
   | { kind: 'songs'; folderUri: string }
-  | { kind: 'player'; returnTo: 'folders' | 'songs' }
+  | { kind: 'player'; returnTo: 'folders' | 'songs'; folderUri?: string }
   | { kind: 'queue'; returnTo: 'folders' | 'songs' | 'player'; folderUri?: string; playerReturnTo?: 'folders' | 'songs' }
   | { kind: 'wrapped'; returnTo: 'folders' | 'songs' | 'player'; folderUri?: string; playerReturnTo?: 'folders' | 'songs' };

@@ -5,6 +5,7 @@ import { fallbackMetadata } from '../services/trackMetadata';
 import type { Folder, Track, TrackMetadata } from '../types/domain';
 import { AlbumArt, FolderArtwork, MarqueeText, QueueButton, ScreenHeader, WrappedButton } from '../components/AppPrimitives';
 import { styles } from '../styles/appStyles';
+import { PlayingBars } from '../components/PlayingBars';
 
 export const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount, hasQueue, isScanning, scanningFolderUris, notice, onAddFolder, onAddSong, onOpenFolder, onLongPressFolder, onOpenWrapped, onOpenQueue }: { folders: { folder: Folder; count: number }[]; tracksCount: number; hasQueue: boolean; isScanning: boolean; scanningFolderUris: ReadonlySet<string>; notice: string; onAddFolder: () => void; onAddSong: () => void; onOpenFolder: (folder: Folder) => void; onLongPressFolder: (folder: Folder) => void; onOpenWrapped: () => void; onOpenQueue: () => void }) {
   return (
@@ -15,7 +16,7 @@ export const FoldersScreen = memo(function FoldersScreen({ folders, tracksCount,
   );
 });
 
-export const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, currentMetadata, metadataCache, isScanning, onPlayTrack, onOpenQueue }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; currentMetadata: TrackMetadata | null; metadataCache: ReadonlyMap<string, TrackMetadata>; isScanning: boolean; onPlayTrack: (track: Track) => void; onOpenQueue: () => void }) {
+export const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTrack, currentMetadata, metadataCache, isScanning, playing, onPlayTrack, onOpenQueue }: { folder: Folder; tracks: Track[]; currentTrack: Track | null; currentMetadata: TrackMetadata | null; metadataCache: ReadonlyMap<string, TrackMetadata>; isScanning: boolean; playing: boolean; onPlayTrack: (track: Track) => void; onOpenQueue: () => void }) {
   const [search, setSearch] = useState('');
   const visibleTracks = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -34,7 +35,7 @@ export const SongsScreen = memo(function SongsScreen({ folder, tracks, currentTr
       <TextInput accessibilityLabel="Search songs in folder" onChangeText={setSearch} placeholder="Search songs" placeholderTextColor="#666666" style={styles.search} value={search} />
       {isScanning ? <View style={styles.loading}><ActivityIndicator color="#000000" /><Text style={styles.notice}>Scanning folder.</Text></View> : visibleTracks.length ? <FlatList data={visibleTracks} keyExtractor={({ track }) => track.uri} initialNumToRender={16} maxToRenderPerBatch={12} removeClippedSubviews windowSize={7} renderItem={({ item: { track, metadata } }) => {
         const isPlaying = currentTrack?.uri === track.uri;
-        return <Pressable onPress={() => onPlayTrack(track)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={[styles.trackIndicator, isPlaying && styles.activeTrackIndicator]} /><View style={styles.trackCopy}>{isPlaying ? <MarqueeText style={styles.trackNameViewport} text={metadata.title} textStyle={styles.trackName} fadeColor="#F2F2F2" fadeTransparentColor="rgba(242,242,242,0)" /> : <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackName}>{metadata.title}</Text>}{metadata.artist ? <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackArtist}>{metadata.artist}</Text> : null}</View></Pressable>;
+        return <Pressable onPress={() => onPlayTrack(track)} style={({ pressed }) => [styles.trackRow, isPlaying && styles.activeTrackRow, pressed && styles.pressed]}><View style={styles.trackIndicator} /><View style={styles.trackCopy}>{isPlaying ? <MarqueeText style={styles.trackNameViewport} text={metadata.title} textStyle={styles.trackName} fadeColor="#F2F2F2" fadeTransparentColor="rgba(242,242,242,0)" /> : <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackName}>{metadata.title}</Text>}{metadata.artist ? <Text ellipsizeMode="tail" numberOfLines={1} style={styles.trackArtist}>{metadata.artist}</Text> : null}</View>{isPlaying ? <PlayingBars playing={playing} compact /> : null}</Pressable>;
       }} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} /> : <View style={styles.emptyState}><View style={styles.rule} /><Text style={styles.title}>No MP3 files</Text><Text style={styles.description}>This folder does not currently contain any MP3 files.</Text></View>}
     </View>
   );

@@ -147,7 +147,7 @@ export function usePlaybackController({ player, status, folders, tracks, current
     const nextPlayback = buildQueue(tracks, track, 'folder');
     setMode('folder');
     startPlayback(nextPlayback.queue, nextPlayback.index, repeatMode, 'folder');
-    setScreen({ kind: 'player', returnTo: 'songs' });
+    setScreen({ kind: 'player', returnTo: 'songs', folderUri: track.folderUri });
   }, [repeatMode, setMode, setScreen, startPlayback, tracks]);
 
   const addSong = useCallback(async () => {
