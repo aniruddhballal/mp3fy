@@ -147,6 +147,7 @@ export async function saveWrappedBackupNow(): Promise<boolean> {
   });
   activeWrite = nextWrite.then(() => undefined, () => undefined);
   return nextWrite.catch((error) => {
+    console.error('[wrapped-backup] automatic save failed', error);
     scheduleTimer();
     throw error;
   });
@@ -183,6 +184,7 @@ export async function saveAndVerifyWrappedBackup(): Promise<string> {
   });
   activeWrite = nextWrite.then(() => undefined, () => undefined);
   return nextWrite.catch((error) => {
+    console.error('[wrapped-backup] verified save failed', error);
     scheduleTimer();
     throw error;
   });

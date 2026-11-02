@@ -173,7 +173,8 @@ export function WrappedScreen({ revision, onBack, onSaveBackup }: {
           setBackupMessage('');
           void onSaveBackup().then((timestamp) => {
             setBackupMessage(new Date(timestamp).toLocaleString());
-          }).catch(() => {
+          }).catch((error) => {
+            console.error('[wrapped-screen] backup button failed', error);
             setBackupFailed(true);
             setBackupMessage('Backup failed');
           }).finally(() => setSavingBackup(false));
