@@ -170,7 +170,20 @@ export async function saveAndVerifyWrappedBackup(): Promise<string> {
     // A failed or partial overwrite must not leave an old verification on the next visit.
     await AsyncStorage.removeItem(VERIFIED_KEY);
     await StorageAccessFramework.writeAsStringAsync(fileUri, snapshot);
-    if (!backupContentsMatch(snapshot, await readAsStringAsync(fileUri))) throw new Error('Backup verification failed');
+    const readback = await readAsStringAsync(fileUri);
+    if (!backupContentsMatch(snapshot, readback)) {
+      console.error('[wrapped-backup] verification mismatch', {
+        expectedType: typeof snapshot,
+        actualType: typeof readback,
+        expectedLength: snapshot.length,
+        actualLength: typeof readback === 'string' ? readback.length : null,
+        expectedStart: snapshot.slice(0, 100),
+        actualStart: typeof readback === 'string' ? readback.slice(0, 100) : String(readback).slice(0, 100),
+        expectedEnd: snapshot.slice(-100),
+        actualEnd: typeof readback === 'string' ? readback.slice(-100) : String(readback).slice(-100),
+      });
+      throw new Error('Backup verification failed');
+    }
     const saved: unknown = JSON.parse(snapshot);
     if (!saved || typeof saved !== 'object' || typeof (saved as { createdAt?: unknown }).createdAt !== 'string') throw new Error('Invalid backup timestamp');
     const timestamp = (saved as { createdAt: string }).createdAt;
