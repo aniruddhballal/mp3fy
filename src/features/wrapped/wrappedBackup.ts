@@ -126,7 +126,10 @@ export async function saveAndVerifyWrappedBackup(): Promise<string> {
     const target = destination;
     const revision = pendingRevision;
     const snapshot = await exportWrappedBackup();
-    const fileUri = await findBackupFile(target.directoryUri)
+    // Prefer the persisted file URI. Some Android storage providers can keep an
+    // already-authorized document readable/writable while rejecting a fresh
+    // directory enumeration for the same tree URI.
+    const fileUri = target.fileUri ?? await findBackupFile(target.directoryUri)
       ?? await StorageAccessFramework.createFileAsync(target.directoryUri, 'mp3fy-wrapped', 'application/json');
     // A failed or partial overwrite must not leave an old verification on the next visit.
     await AsyncStorage.removeItem(VERIFIED_KEY);

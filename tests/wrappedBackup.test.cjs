@@ -102,6 +102,19 @@ test('manual save verifies a fresh snapshot even without pending revisions and r
   assert.equal(files.get('content://backups/mp3fy-wrapped.json'), snapshot);
 });
 
+test('manual save reuses the authorized file when directory enumeration is unavailable', async () => {
+  const { backup, files, saf, setSnapshot } = loadBackupHarness();
+  await backup.chooseWrappedBackupFolder();
+  backup.noteWrappedHistoryChanged();
+  await backup.saveWrappedBackupNow();
+
+  saf.readDirectoryAsync = async () => { throw new Error('Unsupported Uri'); };
+  const snapshot = JSON.stringify({ createdAt: '2026-11-01T12:36:00.000Z', periods: [3] });
+  setSnapshot(snapshot);
+  assert.equal(await backup.saveAndVerifyWrappedBackup(), '2026-11-01T12:36:00.000Z');
+  assert.equal(files.get('content://backups/mp3fy-wrapped.json'), snapshot);
+});
+
 test('manual save reports failure when the backup cannot be read back intact', async () => {
   const { backup, saf, setSnapshot } = loadBackupHarness();
   await backup.chooseWrappedBackupFolder();
