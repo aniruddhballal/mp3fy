@@ -115,6 +115,20 @@ test('manual save reuses the authorized file when directory enumeration is unava
   assert.equal(files.get('content://backups/mp3fy-wrapped.json'), snapshot);
 });
 
+test('initialization recovers an existing backup document when the tree cannot be listed', async () => {
+  const { backup, files, preferences, saf, restart, setSnapshot } = loadBackupHarness();
+  files.set('content://backups/document/tree-id%2Fmp3fy-wrapped.json', 'existing backup');
+  preferences.set('mp3fy.wrappedBackupDestination.v2', JSON.stringify({ directoryUri: 'content://backups/tree/tree-id', fileUri: null }));
+  saf.readDirectoryAsync = async () => { throw new Error('Unsupported Uri'); };
+
+  const recovered = restart();
+  assert.equal(await recovered.initializeWrappedBackup(), true);
+  const snapshot = JSON.stringify({ createdAt: '2026-11-01T12:37:00.000Z', periods: [4] });
+  setSnapshot(snapshot);
+  assert.equal(await recovered.saveAndVerifyWrappedBackup(), '2026-11-01T12:37:00.000Z');
+  assert.equal(files.get('content://backups/document/tree-id%2Fmp3fy-wrapped.json'), snapshot);
+});
+
 test('manual save reports failure when the backup cannot be read back intact', async () => {
   const { backup, saf, setSnapshot } = loadBackupHarness();
   await backup.chooseWrappedBackupFolder();

@@ -34,6 +34,36 @@ async function findBackupFile(directoryUri: string): Promise<string | null> {
   return entries.find((uri) => fileNameFromUri(uri) === BACKUP_FILE_NAME) ?? null;
 }
 
+function documentUriForFile(directoryUri: string, fileName: string): string | null {
+  const cleanUri = directoryUri.split(/[?#]/)[0];
+  const treeMarker = '/tree/';
+  const markerIndex = cleanUri.indexOf(treeMarker);
+  if (markerIndex < 0) return null;
+  const documentId = cleanUri.slice(markerIndex + treeMarker.length);
+  if (!documentId) return null;
+  return `${cleanUri.slice(0, markerIndex)}/document/${documentId}%2F${encodeURIComponent(fileName)}`;
+}
+
+/**
+ * Resolve the existing backup even when a provider rejects listing the tree.
+ * Android SAF document URIs remain valid independently of directory enumeration.
+ */
+async function findExistingBackupFile(directoryUri: string): Promise<string | null> {
+  try {
+    return await findBackupFile(directoryUri);
+  } catch (error) {
+    const candidate = documentUriForFile(directoryUri, BACKUP_FILE_NAME);
+    if (!candidate) throw error;
+    try {
+      const contents = await readAsStringAsync(candidate);
+      if (typeof contents !== 'string') throw new Error('Backup file does not exist');
+      return candidate;
+    } catch {
+      throw error;
+    }
+  }
+}
+
 function scheduleTimer() {
   if (!destination || backupTimer || pendingRevision === writtenRevision) return;
   backupTimer = setTimeout(() => {
@@ -50,13 +80,7 @@ export async function initializeWrappedBackup(): Promise<boolean> {
     if (!parsed || typeof parsed !== 'object') return false;
     const candidate = parsed as Partial<Destination>;
     if (typeof candidate.directoryUri !== 'string') return false;
-    const fileUri = typeof candidate.fileUri === 'string' ? candidate.fileUri : await findBackupFile(candidate.directoryUri).catch(() => null);
-    if (fileUri) {
-      const exists = await StorageAccessFramework.readDirectoryAsync(candidate.directoryUri)
-        .then((entries) => entries.includes(fileUri))
-        .catch(() => false);
-      if (!exists) return false;
-    }
+    const fileUri = typeof candidate.fileUri === 'string' ? candidate.fileUri : await findExistingBackupFile(candidate.directoryUri).catch(() => null);
     destination = { directoryUri: candidate.directoryUri, fileUri };
     return true;
   } catch {
@@ -69,7 +93,7 @@ export async function chooseWrappedBackupFolder(): Promise<boolean> {
   const permission = await StorageAccessFramework.requestDirectoryPermissionsAsync();
   if (!permission.granted) return false;
 
-  const fileUri = await findBackupFile(permission.directoryUri);
+  const fileUri = await findExistingBackupFile(permission.directoryUri);
   if (fileUri) {
     const contents = await readAsStringAsync(fileUri);
     await restoreWrappedBackup(contents);
@@ -100,7 +124,7 @@ export async function saveWrappedBackupNow(): Promise<boolean> {
   const revision = pendingRevision;
   const nextWrite = activeWrite.catch(() => undefined).then(async () => {
     const snapshot = await exportWrappedBackup();
-    const fileUri = target.fileUri ?? await findBackupFile(target.directoryUri)
+    const fileUri = target.fileUri ?? await findExistingBackupFile(target.directoryUri)
       ?? await StorageAccessFramework.createFileAsync(target.directoryUri, 'mp3fy-wrapped', 'application/json');
     await StorageAccessFramework.writeAsStringAsync(fileUri, snapshot);
     const next: Destination = { directoryUri: target.directoryUri, fileUri };
@@ -129,7 +153,7 @@ export async function saveAndVerifyWrappedBackup(): Promise<string> {
     // Prefer the persisted file URI. Some Android storage providers can keep an
     // already-authorized document readable/writable while rejecting a fresh
     // directory enumeration for the same tree URI.
-    const fileUri = target.fileUri ?? await findBackupFile(target.directoryUri)
+    const fileUri = target.fileUri ?? await findExistingBackupFile(target.directoryUri)
       ?? await StorageAccessFramework.createFileAsync(target.directoryUri, 'mp3fy-wrapped', 'application/json');
     // A failed or partial overwrite must not leave an old verification on the next visit.
     await AsyncStorage.removeItem(VERIFIED_KEY);
