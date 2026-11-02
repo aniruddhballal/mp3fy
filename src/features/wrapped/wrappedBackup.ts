@@ -44,6 +44,16 @@ function documentUriForFile(directoryUri: string, fileName: string): string | nu
   return `${cleanUri.slice(0, markerIndex)}/document/${documentId}%2F${encodeURIComponent(fileName)}`;
 }
 
+function backupContentsMatch(expected: string, actual: string): boolean {
+  if (actual === expected) return true;
+  try {
+    const normalize = (contents: string) => JSON.stringify(JSON.parse(contents.replace(/^\uFEFF/, '')));
+    return normalize(actual) === normalize(expected);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve the existing backup even when a provider rejects listing the tree.
  * Android SAF document URIs remain valid independently of directory enumeration.
@@ -159,7 +169,7 @@ export async function saveAndVerifyWrappedBackup(): Promise<string> {
     // A failed or partial overwrite must not leave an old verification on the next visit.
     await AsyncStorage.removeItem(VERIFIED_KEY);
     await StorageAccessFramework.writeAsStringAsync(fileUri, snapshot);
-    if (await readAsStringAsync(fileUri) !== snapshot) throw new Error('Backup verification failed');
+    if (!backupContentsMatch(snapshot, await readAsStringAsync(fileUri))) throw new Error('Backup verification failed');
     const saved: unknown = JSON.parse(snapshot);
     if (!saved || typeof saved !== 'object' || typeof (saved as { createdAt?: unknown }).createdAt !== 'string') throw new Error('Invalid backup timestamp');
     const timestamp = (saved as { createdAt: string }).createdAt;

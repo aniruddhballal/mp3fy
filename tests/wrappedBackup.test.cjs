@@ -149,6 +149,15 @@ test('manual save reports failure when the backup cannot be read back intact', a
   assert.equal(await backup.getLastVerifiedWrappedBackup(), null);
 });
 
+test('manual save accepts harmless JSON formatting added by a storage provider', async () => {
+  const { backup, saf, setSnapshot } = loadBackupHarness();
+  await backup.chooseWrappedBackupFolder();
+  const snapshot = JSON.stringify({ createdAt: '2026-11-01T12:34:56.000Z', periods: [1] });
+  setSnapshot(snapshot);
+  saf.readAsStringAsync = async () => `${snapshot}\n`;
+  assert.equal(await backup.saveAndVerifyWrappedBackup(), '2026-11-01T12:34:56.000Z');
+});
+
 test('choosing a backup folder clears the prior verification timestamp', async () => {
   const { backup, setSnapshot } = loadBackupHarness();
   await backup.chooseWrappedBackupFolder();
