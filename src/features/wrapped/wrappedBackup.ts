@@ -80,7 +80,8 @@ export async function initializeWrappedBackup(): Promise<boolean> {
     if (!parsed || typeof parsed !== 'object') return false;
     const candidate = parsed as Partial<Destination>;
     if (typeof candidate.directoryUri !== 'string') return false;
-    const fileUri = typeof candidate.fileUri === 'string' ? candidate.fileUri : await findExistingBackupFile(candidate.directoryUri).catch(() => null);
+    const fileUri = typeof candidate.fileUri === 'string' ? candidate.fileUri : await findExistingBackupFile(candidate.directoryUri);
+    if (fileUri) await readAsStringAsync(fileUri);
     destination = { directoryUri: candidate.directoryUri, fileUri };
     return true;
   } catch {

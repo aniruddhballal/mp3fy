@@ -129,6 +129,16 @@ test('initialization recovers an existing backup document when the tree cannot b
   assert.equal(files.get('content://backups/document/tree-id%2Fmp3fy-wrapped.json'), snapshot);
 });
 
+test('initialization rejects a destination when its persisted SAF access is gone', async () => {
+  const { backup, preferences, saf, restart } = loadBackupHarness();
+  preferences.set('mp3fy.wrappedBackupDestination.v2', JSON.stringify({
+    directoryUri: 'content://backups/tree/tree-id',
+    fileUri: 'content://backups/document/tree-id%2Fmp3fy-wrapped.json',
+  }));
+  saf.readAsStringAsync = async () => { throw new Error('Permission denied'); };
+  assert.equal(await restart().initializeWrappedBackup(), false);
+});
+
 test('manual save reports failure when the backup cannot be read back intact', async () => {
   const { backup, saf, setSnapshot } = loadBackupHarness();
   await backup.chooseWrappedBackupFolder();
