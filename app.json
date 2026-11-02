@@ -2,7 +2,7 @@
   "expo": {
     "name": "mp3fy",
     "slug": "mp3fy",
-    "version": "1.6.26",
+    "version": "1.6.27",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.mp3fy",
-      "versionCode": 71
+      "versionCode": 72
     },
     "web": {
       "favicon": "./assets/favicon.png"

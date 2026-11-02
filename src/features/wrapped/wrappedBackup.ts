@@ -55,6 +55,28 @@ function backupContentsMatch(expected: string, actual: string): boolean {
   }
 }
 
+function utf8ByteLength(value: string): number {
+  let length = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    length += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+  }
+  return length;
+}
+
+async function writeBackupContents(fileUri: string, snapshot: string): Promise<void> {
+  let contents = snapshot;
+  try {
+    const previous = await readAsStringAsync(fileUri);
+    const previousBytes = utf8ByteLength(previous);
+    const snapshotBytes = utf8ByteLength(snapshot);
+    if (previousBytes > snapshotBytes) contents += ' '.repeat(previousBytes - snapshotBytes);
+  } catch {
+    // A new document has no previous contents to pad over.
+  }
+  await StorageAccessFramework.writeAsStringAsync(fileUri, contents);
+}
+
 /**
  * Resolve the existing backup even when a provider rejects listing the tree.
  * Android SAF document URIs remain valid independently of directory enumeration.
@@ -138,7 +160,7 @@ export async function saveWrappedBackupNow(): Promise<boolean> {
     const snapshot = await exportWrappedBackup();
     const fileUri = target.fileUri ?? await findExistingBackupFile(target.directoryUri)
       ?? await StorageAccessFramework.createFileAsync(target.directoryUri, 'mp3fy-wrapped', 'application/json');
-    await StorageAccessFramework.writeAsStringAsync(fileUri, snapshot);
+    await writeBackupContents(fileUri, snapshot);
     const next: Destination = { directoryUri: target.directoryUri, fileUri };
     destination = next;
     await AsyncStorage.setItem(DESTINATION_KEY, JSON.stringify(next));
@@ -170,7 +192,7 @@ export async function saveAndVerifyWrappedBackup(): Promise<string> {
       ?? await StorageAccessFramework.createFileAsync(target.directoryUri, 'mp3fy-wrapped', 'application/json');
     // A failed or partial overwrite must not leave an old verification on the next visit.
     await AsyncStorage.removeItem(VERIFIED_KEY);
-    await StorageAccessFramework.writeAsStringAsync(fileUri, snapshot);
+    await writeBackupContents(fileUri, snapshot);
     if (!backupContentsMatch(snapshot, await readAsStringAsync(fileUri))) throw new Error('Backup verification failed');
     const saved: unknown = JSON.parse(snapshot);
     if (!saved || typeof saved !== 'object' || typeof (saved as { createdAt?: unknown }).createdAt !== 'string') throw new Error('Invalid backup timestamp');

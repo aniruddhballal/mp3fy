@@ -86,7 +86,7 @@ test('existing backup destination can be reopened without creating another file'
   reopened.noteWrappedHistoryChanged();
   await reopened.saveWrappedBackupNow();
   assert.equal(files.size, 1);
-  assert.equal(files.get(saved.fileUri), 'after restart');
+  assert.equal(files.get(saved.fileUri).trimEnd(), 'after restart');
 });
 
 test('manual save verifies a fresh snapshot even without pending revisions and recreates a missing file', async () => {
@@ -156,6 +156,21 @@ test('manual save accepts harmless JSON formatting added by a storage provider',
   setSnapshot(snapshot);
   saf.readAsStringAsync = async () => `${snapshot}\n`;
   assert.equal(await backup.saveAndVerifyWrappedBackup(), '2026-11-01T12:34:56.000Z');
+});
+
+test('manual save overwrites a longer SAF document without leaving its old JSON tail', async () => {
+  const { backup, files, saf, setSnapshot } = loadBackupHarness();
+  await backup.chooseWrappedBackupFolder();
+  const oldSnapshot = JSON.stringify({ createdAt: '2026-11-01T12:34:55.000Z', periods: [1, 2, 3, 4, 5] });
+  files.set('content://backups/mp3fy-wrapped.json', oldSnapshot);
+  saf.writeAsStringAsync = async (uri, contents) => {
+    const previous = files.get(uri) ?? '';
+    files.set(uri, contents.length < previous.length ? contents + previous.slice(contents.length) : contents);
+  };
+  const snapshot = JSON.stringify({ createdAt: '2026-11-01T12:34:56.000Z', periods: [1] });
+  setSnapshot(snapshot);
+  assert.equal(await backup.saveAndVerifyWrappedBackup(), '2026-11-01T12:34:56.000Z');
+  assert.equal(files.get('content://backups/mp3fy-wrapped.json'), `${snapshot}${' '.repeat(oldSnapshot.length - snapshot.length)}`);
 });
 
 test('choosing a backup folder clears the prior verification timestamp', async () => {
