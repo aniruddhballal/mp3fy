@@ -26,18 +26,25 @@ When a feature or bug fix is requested as a build/release:
    ```
 
 4. Commit all source, test, and configuration changes first. The source commit must exist before the APK is built.
-5. Stop stale Gradle daemons, regenerate native Android code, and build the optimized release APK:
+5. Choose the least disruptive Android build that includes all changes. Expo in this project clears `android/` by default; preserve it with `--no-clean` when it is safe to do so. Do not stop healthy Gradle daemons or run Gradle `clean` routinely.
+
+   - **Incremental release:** For JavaScript/TypeScript, styles, assets, tests, and other changes that do not alter native configuration or dependencies, use the existing `android/` project when it is known to match the current checkout and dependencies. Even for these changes, run `prebuild --no-clean` after bumping the release identifiers so the generated Android version is updated. Gradle determines which tasks must rerun; do not bypass release optimization.
+   - **Native configuration or dependency changes:** Inspect the changed Expo config, config plugins, native source, and dependency changes. Use `prebuild --no-clean` only if the existing generated project is trustworthy and the changes can be applied safely and idempotently. Additions or updates may be compatible, but removing or renaming a plugin, native dependency, permission, or native configuration can leave stale generated entries; use a clean regeneration when removal or replacement cannot be verified safe.
+   - **Clean regeneration:** If `android/` is missing, its provenance or compatibility is uncertain, native generation is not safely repeatable, or an incremental build fails for reasons indicating stale generated state, stop Gradle daemons and run `npx expo prebuild --platform android --no-install` without `--no-clean`. Use this path for a reproducible clean build when the change or user explicitly requires it. Do not repeatedly clean as a substitute for diagnosing unrelated failures.
+
+   For the normal incremental path, run:
 
    ```powershell
-   .\android\gradlew.bat --stop
-   npx expo prebuild --platform android --no-install
+   npx expo prebuild --platform android --no-install --no-clean
    Push-Location android
    .\gradlew.bat assembleRelease
    Pop-Location
    Copy-Item android\app\build\outputs\apk\release\app-release.apk mp3fy.apk -Force
    ```
 
-   If Expo reports an `EBUSY` lock while clearing `android/`, stop only Java/Gradle processes and rerun prebuild; do not delete user data.
+   For a clean regeneration, run `.\android\gradlew.bat --stop` if the wrapper exists, then use `npx expo prebuild --platform android --no-install` and the same Gradle build and copy commands. If Expo reports an `EBUSY` lock while clearing `android/`, stop only Java/Gradle processes and rerun prebuild; do not delete user data.
+
+   Confirm the resulting APK's version name and version code match `app.json`, including when no device is available; inspect the APK with an available Android SDK tool such as `aapt dump badging`. For native configuration changes, also verify the relevant generated configuration or APK manifest. If verification reveals stale output, diagnose it and regenerate cleanly before packaging.
 
 6. If an ADB device is connected, install the new APK in place without clearing data:
 
