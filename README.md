@@ -16,6 +16,10 @@ Songs in a folder are listed alphabetically by title. Each row shows the title f
 
 Application code lives under `src/`; the repository root contains project configuration, documentation, assets, tests, and the checked-in APK. Feature logic is grouped under `src/features`, reusable services under `src/services`, screens under `src/screens`, shared UI under `src/components`, and shared domain types under `src/types`.
 
+## Agent and release workflow
+
+Repository-level instructions for Codex and other coding agents—including versioning, testing, safe ADB installation, separate source/APK commits, and cleanup—are maintained in [`AGENTS.md`](AGENTS.md). Agents should read that file before changing or releasing the app.
+
 ## Playback order
 
 Starting a song from a folder selects **A-Z**, which follows MP3 filename order within that folder. For filenames such as `Artist - Song.mp3`, this groups songs by artist and sorts the artists alphabetically. Tap the order control to cycle through **A-Z → a-z → shuffle → A-Z**. **a-z** sorts by the displayed song title, using ID3 titles already loaded by the player and filename-derived titles otherwise, regardless of the artist prefix. Shuffle randomizes the remaining songs in that folder. When at least two other songs are available, returning to shuffle avoids repeating the previous upcoming order, even after switching modes or reopening the app. Restoring an existing playback session preserves its selected mode; previously saved sequential playback is restored as **a-z**.
