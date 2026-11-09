@@ -1,4 +1,5 @@
 export type LockScreenMetadata = {
+  uri: string;
   title: string;
   artist: string;
   albumTitle?: string;

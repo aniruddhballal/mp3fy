@@ -1,0 +1,11 @@
+// Host-side regressions for the patched native player; no phone or user files needed.
+gradle.afterProject { project ->
+  if (project.path == ':expo-audio-local') {
+    project.android.sourceSets.test.java.srcDir(new File(project.rootDir, '../tests/android'))
+    project.android.testOptions.unitTests.includeAndroidResources = true
+    project.dependencies.add('testImplementation', 'junit:junit:4.13.2')
+    project.dependencies.add('testImplementation', 'org.robolectric:robolectric:4.14.1')
+    project.dependencies.add('testImplementation', 'org.mockito:mockito-inline:4.11.0')
+    project.dependencies.add('testImplementation', 'com.facebook.react:react-android:0.86.3')
+  }
+}

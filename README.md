@@ -156,6 +156,28 @@ npx expo run:android
 
 The first `npx expo run:android` also generates the native Android project when it is missing.
 
+## Playback regression checks
+
+Run the TypeScript and JavaScript checks from the repository root:
+
+```powershell
+npx tsc --noEmit
+node --experimental-sqlite --test tests/*.test.cjs
+git diff --check
+```
+
+After generating `android/`, run the native audio regressions without a connected device:
+
+```powershell
+Push-Location android
+.\gradlew.bat -I ..\tests\android-audio.gradle :expo-audio-local:testReleaseUnitTest
+Pop-Location
+```
+
+The test-only Gradle script adds Robolectric/JUnit dependencies to that invocation; they are not included in the APK. Tests exercise audio focus across buffering and remote playback, stable service sessions, late metadata rejection, and next/previous commands, duration, and progress through a real Media3 media controller. The patched player attaches metadata to native playlist items with URI-based media IDs instead of overriding the active track globally.
+
+These host tests do not verify a particular car's hardware or firmware. For Uconnect, check with the phone locked and mp3fy in the background: select a track in the app, use the car's next/previous controls repeatedly between songs with different durations, let a song advance automatically, and pause/resume. Confirm the title and duration follow each song, progress advances only during playback, and audio continues beyond the first few seconds. Also check that Garmin reports the current mp3fy track after switching from Spotify. Avoid changing files or clearing app data during these checks.
+
 ## Privacy and storage access
 
 The app uses Android's user-controlled folder picker so the user chooses exactly which directories `mp3fy` can read. It scans only those selected directory trees, plays only local files, and remains read-only by default.

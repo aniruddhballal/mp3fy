@@ -29,7 +29,7 @@ export function useTrackArtwork({ player, tracker, artworkCache, metadataCache }
       setCurrentMetadata(metadata);
       setCurrentArtwork(mediaArtwork);
       setIsArtworkLoading(false);
-      updateLockScreen(player, { title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: mediaArtwork ?? undefined });
+      updateLockScreen(player, { uri: track.uri, title: metadata.title, artist: metadata.artist || 'mp3fy', albumTitle: metadata.album || undefined, artworkUrl: mediaArtwork ?? undefined });
     };
 
     const cachedMetadata = metadataCache.get(track.uri);

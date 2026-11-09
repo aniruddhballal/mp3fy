@@ -91,7 +91,7 @@ export function usePlaybackController({ player, status, folders, tracks, current
     setCurrentArtwork(null);
     setIsArtworkLoading(true);
     lockScreenTrackUri.current = nextTrack.uri;
-    activateLockScreen(player, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
+    activateLockScreen(player, { uri: nextTrack.uri, title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
     player.play();
     restoreTimer.current = setTimeout(() => {
       if (pendingRestorePosition.current === null) return;
@@ -135,7 +135,7 @@ export function usePlaybackController({ player, status, folders, tracks, current
     setIsArtworkLoading(true);
     const nextMetadata = fallbackMetadata(nextTrack);
     setCurrentMetadata(nextMetadata);
-    updateLockScreen(player, { title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
+    updateLockScreen(player, { uri: nextTrack.uri, title: nextMetadata.title, artist: nextMetadata.artist || 'mp3fy', albumTitle: nextMetadata.album || undefined });
     void loadArtwork(nextTrack);
   }, [currentTrack?.uri, loadArtwork, player, queue, setCurrentArtwork, setCurrentMetadata, setCurrentTrack, setIsArtworkLoading, setQueueIndex, status.currentIndex]);
 

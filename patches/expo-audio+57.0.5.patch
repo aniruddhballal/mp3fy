@@ -1,58 +1,252 @@
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/checksums/checksums.lock b/node_modules/expo-audio/android/.gradle/9.3.1/checksums/checksums.lock
-new file mode 100644
-index 0000000..8c67057
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/9.3.1/checksums/checksums.lock differ
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/checksums/md5-checksums.bin b/node_modules/expo-audio/android/.gradle/9.3.1/checksums/md5-checksums.bin
-new file mode 100644
-index 0000000..6c2db4b
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/9.3.1/checksums/md5-checksums.bin differ
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/checksums/sha1-checksums.bin b/node_modules/expo-audio/android/.gradle/9.3.1/checksums/sha1-checksums.bin
-new file mode 100644
-index 0000000..c494227
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/9.3.1/checksums/sha1-checksums.bin differ
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/fileChanges/last-build.bin b/node_modules/expo-audio/android/.gradle/9.3.1/fileChanges/last-build.bin
-new file mode 100644
-index 0000000..f76dd23
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/9.3.1/fileChanges/last-build.bin differ
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/fileHashes.bin b/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/fileHashes.bin
-new file mode 100644
-index 0000000..2e2fe6a
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/fileHashes.bin differ
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/fileHashes.lock b/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/fileHashes.lock
-new file mode 100644
-index 0000000..8533498
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/fileHashes.lock differ
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/resourceHashesCache.bin b/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/resourceHashesCache.bin
-new file mode 100644
-index 0000000..7d484ee
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/9.3.1/fileHashes/resourceHashesCache.bin differ
-diff --git a/node_modules/expo-audio/android/.gradle/9.3.1/gc.properties b/node_modules/expo-audio/android/.gradle/9.3.1/gc.properties
-new file mode 100644
-index 0000000..e69de29
-diff --git a/node_modules/expo-audio/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock b/node_modules/expo-audio/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
-new file mode 100644
-index 0000000..203ff05
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock differ
-diff --git a/node_modules/expo-audio/android/.gradle/buildOutputCleanup/cache.properties b/node_modules/expo-audio/android/.gradle/buildOutputCleanup/cache.properties
-new file mode 100644
-index 0000000..2aa7c31
---- /dev/null
-+++ b/node_modules/expo-audio/android/.gradle/buildOutputCleanup/cache.properties
-@@ -0,0 +1,2 @@
-+#Mon Oct 12 16:40:12 IST 2026
-+gradle.version=9.3.1
-diff --git a/node_modules/expo-audio/android/.gradle/noVersion/buildLogic.lock b/node_modules/expo-audio/android/.gradle/noVersion/buildLogic.lock
-new file mode 100644
-index 0000000..0738668
-Binary files /dev/null and b/node_modules/expo-audio/android/.gradle/noVersion/buildLogic.lock differ
-diff --git a/node_modules/expo-audio/android/.gradle/vcs-1/gc.properties b/node_modules/expo-audio/android/.gradle/vcs-1/gc.properties
-new file mode 100644
-index 0000000..e69de29
 diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioModule.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioModule.kt
-index 992239b..336cbc4 100644
+index 992239b..a9bbc5e 100644
 --- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioModule.kt
 +++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioModule.kt
-@@ -855,6 +855,24 @@ class AudioModule : Module() {
+@@ -58,6 +58,7 @@ class AudioModule : Module() {
+   private var audioEnabled = true
+   private var shouldRouteThroughEarpiece = false
+   private var focusAcquired = false
++  private var handlingFocusChange = false
+   private var interruptionMode: InterruptionMode? = null
+   private var allowsBackgroundRecording = false
+   private var playsInSilentMode = true
+@@ -79,87 +80,102 @@ class AudioModule : Module() {
+   private var audioFocusRequest: AudioFocusRequest? = null
+   private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+     appContext.mainQueue.launch {
+-      when (focusChange) {
+-        AudioManager.AUDIOFOCUS_LOSS -> {
+-          focusAcquired = false
+-          allPlayables.forEach { it.pause() }
+-        }
+-
+-        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+-          focusAcquired = false
+-          allPlayables.forEach { playable ->
+-            if (playable.isPlaying) {
+-              playable.isPaused = true
+-              playable.pause()
+-            }
++      handlingFocusChange = true
++      try {
++        when (focusChange) {
++          AudioManager.AUDIOFOCUS_LOSS -> {
++            focusAcquired = false
++            allPlayables.forEach { it.isPaused = false; it.pause() }
+           }
+-        }
+
+-        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+-          if (interruptionMode == InterruptionMode.DUCK_OTHERS) {
++          AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
++            focusAcquired = false
+             allPlayables.forEach { playable ->
+-              if (playable.previousVolume != playable.volume) {
+-                playable.previousVolume = playable.volume
+-              }
+-              playable.setVolume(playable.previousVolume * 0.5f)
+-            }
+-          } else {
+-            allPlayables.forEach { playable ->
+-              if (playable.isPlaying) {
++              if (playable.player.playWhenReady) {
+                 playable.isPaused = true
+                 playable.pause()
+               }
+             }
+           }
+-        }
+-
+-        AudioManager.AUDIOFOCUS_GAIN -> {
+-          focusAcquired = true
+
+-          if (!shouldPlayInSilentMode()) {
+-            return@launch
++          AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
++            if (interruptionMode == InterruptionMode.DUCK_OTHERS) {
++              allPlayables.forEach { playable ->
++                if (playable.previousVolume != playable.volume) {
++                  playable.previousVolume = playable.volume
++                }
++                playable.setVolume(playable.previousVolume * 0.5f)
++              }
++            } else {
++              allPlayables.forEach { playable ->
++                if (playable.player.playWhenReady) {
++                  playable.isPaused = true
++                  playable.pause()
++                }
++              }
++            }
+           }
+
+-          allPlayables.forEach { playable ->
+-            playable.setVolume(playable.previousVolume)
+-            if (playable.isPaused) {
+-              playable.isPaused = false
+-              playable.play()
++          AudioManager.AUDIOFOCUS_GAIN -> {
++            focusAcquired = true
++
++            if (!shouldPlayInSilentMode()) {
++              return@launch
++            }
++
++            allPlayables.forEach { playable ->
++              playable.setVolume(playable.previousVolume)
++              if (playable.isPaused) {
++                playable.isPaused = false
++                playable.play()
++              }
+             }
+           }
+         }
++      } finally {
++        handlingFocusChange = false
+       }
+     }
+   }
+
+   private fun shouldReleaseFocus(): Boolean {
+-    return allPlayables.none { it.isPlaying }
++    // isPlaying is also false while a seek/track change is buffering. That is
++    // not a pause: abandoning focus then lets the previous media app take over.
++    return allPlayables.none {
++      it.player.playWhenReady && it.player.playbackState != Player.STATE_ENDED && it.player.playerError == null
++    }
++  }
++
++  private fun synchronizeAudioFocus() {
++    if (handlingFocusChange) return
++    if (shouldReleaseFocus()) releaseAudioFocus() else requestAudioFocus()
+   }
+
+   private fun shouldPlayInSilentMode(): Boolean {
+     return playsInSilentMode || audioManager.ringerMode == AudioManager.RINGER_MODE_NORMAL
+   }
+
+-  private fun requestAudioFocus() {
+-    if (focusAcquired || !audioEnabled || interruptionMode == InterruptionMode.MIX_WITH_OTHERS) {
+-      return
+-    }
++  private fun requestAudioFocus(): Boolean {
++    if (!audioEnabled) return false
++    if (focusAcquired || interruptionMode == InterruptionMode.MIX_WITH_OTHERS) return true
+
+     val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+       val requestType = interruptionMode?.let {
+         if (it == InterruptionMode.DO_NOT_MIX) {
+-          AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
++          AudioManager.AUDIOFOCUS_GAIN
+         } else {
+           AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+         }
+-      } ?: AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
++      } ?: AudioManager.AUDIOFOCUS_GAIN
+       audioFocusRequest = AudioFocusRequest.Builder(requestType).run {
+         setAudioAttributes(
+           AudioAttributes.Builder()
++            .setUsage(AudioAttributes.USAGE_MEDIA)
+             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+             .build()
+         )
+-        setAcceptsDelayedFocusGain(true)
++        // Do not run a silent playback clock while waiting for a denied request.
++        setAcceptsDelayedFocusGain(false)
+         setOnAudioFocusChangeListener(audioFocusChangeListener)
+         build()
+       }
+@@ -169,7 +185,7 @@ class AudioModule : Module() {
+     } else {
+       @Suppress("DEPRECATION")
+       val requestType = if (interruptionMode == InterruptionMode.DO_NOT_MIX) {
+-        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
++        AudioManager.AUDIOFOCUS_GAIN
+       } else {
+         AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+       }
+@@ -180,7 +196,9 @@ class AudioModule : Module() {
+       focusAcquired = true
+     } else {
+       Log.e(TAG, "Audio focus request failed with: $result")
++      allPlayables.filter { it.player.playWhenReady }.forEach { it.pause() }
+     }
++    return focusAcquired
+   }
+
+   private fun releaseAudioFocus() {
+@@ -362,11 +380,7 @@ class AudioModule : Module() {
+             updateInterval,
+             bufferDurationMs
+           )
+-          player.onPlaybackStateChange = { isPlaying ->
+-            if (!isPlaying && shouldReleaseFocus()) {
+-              releaseAudioFocus()
+-            }
+-          }
++          player.onPlaybackStateChange = { synchronizeAudioFocus() }
+           players[player.id] = player
+           player
+         }
+@@ -473,10 +487,7 @@ class AudioModule : Module() {
+           return@Function
+         }
+         runOnMain {
+-          if (!focusAcquired) {
+-            requestAudioFocus()
+-          }
+-          player.ref.play()
++            if (requestAudioFocus()) player.ref.play()
+         }
+       }
+
+@@ -497,10 +508,7 @@ class AudioModule : Module() {
+                 if (!shouldPlayInSilentMode()) {
+                   return@runOnMain
+                 }
+-                if (!focusAcquired) {
+-                  requestAudioFocus()
+-                }
+-                player.ref.play()
++                if (requestAudioFocus()) player.ref.play()
+               }
+             }
+           }
+@@ -677,18 +685,14 @@ class AudioModule : Module() {
+               when {
+                 isRawResource(uri) -> {
+                   val file = getResourceName(uri, uriString)
+-                  MediaItem.fromUri(getRawResourceURI(file))
++                  MediaItem.Builder().setMediaId(uriString).setUri(getRawResourceURI(file)).build()
+                 }
+-                else -> MediaItem.fromUri(uri)
++                else -> MediaItem.Builder().setMediaId(uriString).setUri(uri).build()
+               }
+             }
+           }
+           playlist.loadInitialPlaylist()
+-          playlist.onPlaybackStateChange = { isPlaying ->
+-            if (!isPlaying && shouldReleaseFocus()) {
+-              releaseAudioFocus()
+-            }
+-          }
++          playlist.onPlaybackStateChange = { synchronizeAudioFocus() }
+           playlists[playlist.id] = playlist
+           playlist
+         }
+@@ -793,10 +797,7 @@ class AudioModule : Module() {
+           return@Function
+         }
+         runOnMain {
+-          if (!focusAcquired) {
+-            requestAudioFocus()
+-          }
+-          playlist.ref.play()
++          if (requestAudioFocus()) playlist.ref.play()
+         }
+       }
+
+@@ -855,6 +856,24 @@ class AudioModule : Module() {
        Function("destroy") { playlist: AudioPlaylist ->
          playlists.remove(playlist.id)
        }
@@ -76,7 +270,7 @@ index 992239b..336cbc4 100644
 +      }
      }
    }
- 
+
 diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioPlayer.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioPlayer.kt
 index c76a9fd..8c8ae86 100644
 --- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioPlayer.kt
@@ -91,7 +285,7 @@ index c76a9fd..8c8ae86 100644
  import expo.modules.kotlin.AppContext
  import expo.modules.kotlin.exception.Exceptions
 -import java.lang.ref.WeakReference
- 
+
  private const val PLAYBACK_STATUS_UPDATE = "playbackStatusUpdate"
  private const val AUDIO_SAMPLE_UPDATE = "audioSampleUpdate"
 @@ -34,6 +30,7 @@ class AudioPlayer(
@@ -105,7 +299,7 @@ index c76a9fd..8c8ae86 100644
 @@ -60,14 +57,7 @@ class AudioPlayer(
  ) {
    var preservesPitch = true
- 
+
 -  // Lock screen controls
 -  var isActiveForLockScreen = false
 -  internal var metadata: Metadata? = null
@@ -116,12 +310,12 @@ index c76a9fd..8c8ae86 100644
 -  val isLive: Boolean
 +  override val isLive: Boolean
      get() = ref.isCurrentMediaItemLive
- 
+
    val currentOffsetFromLive: Double?
 @@ -97,53 +87,6 @@ class AudioPlayer(
      startUpdating()
    }
- 
+
 -  fun setActiveForLockScreen(active: Boolean, metadata: Metadata? = null, options: AudioLockScreenOptions? = null) {
 -    if (active) {
 -      this.metadata = metadata
@@ -175,7 +369,7 @@ index c76a9fd..8c8ae86 100644
 @@ -219,11 +162,6 @@ class AudioPlayer(
      )
    }
- 
+
 -  internal fun assignBasicMediaSession() {
 -    mediaSession.release()
 -    mediaSession = buildBasicMediaSession(context, ref)
@@ -186,7 +380,7 @@ index c76a9fd..8c8ae86 100644
        "channels" to listOf(
 @@ -277,11 +215,6 @@ class AudioPlayer(
    }
- 
+
    override fun releasePlayer() {
 -    mediaSession.release()
 -    if (isActiveForLockScreen) {
@@ -208,13 +402,27 @@ index f3536d5..f49c7d1 100644
    player = ExoPlayer.Builder(context)
      .setLooper(context.mainLooper)
      .setAudioAttributes(AudioAttributes.DEFAULT, false)
+diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioRecords.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioRecords.kt
+index 86880d9..8e970d8 100644
+--- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioRecords.kt
++++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/AudioRecords.kt
+@@ -55,7 +55,8 @@ class Metadata(
+   @Field val title: String?,
+   @Field val artist: String?,
+   @Field val albumTitle: String?,
+-  @Field val artworkUrl: URL?
++  @Field val artworkUrl: URL?,
++  @Field val uri: String? = null
+ ) : Record
+
+ enum class AndroidOutputFormat(val value: String) : Enumerable {
 diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/BaseAudioPlayer.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/BaseAudioPlayer.kt
-index 149e907..df0cd49 100644
+index 149e907..d4cf070 100644
 --- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/BaseAudioPlayer.kt
 +++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/BaseAudioPlayer.kt
 @@ -1,12 +1,16 @@
  package expo.modules.audio
- 
+
 +import android.content.Context
  import androidx.media3.common.MediaItem
  import androidx.media3.common.PlaybackException
@@ -234,7 +442,7 @@ index 149e907..df0cd49 100644
  import kotlinx.coroutines.flow.onStart
  import java.util.UUID
 +import java.lang.ref.WeakReference
- 
+
  /**
   * Base class for audio playback objects.
 @@ -30,6 +35,7 @@ import java.util.UUID
@@ -248,7 +456,7 @@ index 149e907..df0cd49 100644
 @@ -49,6 +55,49 @@ abstract class BaseAudioPlayer(
    private var playing = false
    private var updateJob: Job? = null
- 
+
 +  var isActiveForLockScreen = false
 +  internal var metadata: Metadata? = null
 +  internal var lockScreenOptions: AudioLockScreenOptions? = null
@@ -295,13 +503,33 @@ index 149e907..df0cd49 100644
    protected fun startUpdating() {
      updateJob?.cancel()
      updateJob = flow {
-@@ -162,6 +211,16 @@ abstract class BaseAudioPlayer(
+@@ -96,10 +145,19 @@ abstract class BaseAudioPlayer(
+         this@BaseAudioPlayer.onLoadingChanged(isLoading)
+       }
+
++      override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
++        // Bluetooth/Android Auto controls call ExoPlayer directly, bypassing the
++        // JS play() entry point. They need the same audio-focus handling.
++        intendedPlayingState = playWhenReady
++        onPlaybackStateChange?.invoke(ref.isPlaying)
++        sendStatusUpdate()
++      }
++
+       override fun onPlaybackStateChanged(playbackState: Int) {
+         val justFinished = playbackState == Player.STATE_ENDED &&
+           previousPlaybackState != Player.STATE_ENDED
+         previousPlaybackState = playbackState
++        onPlaybackStateChange?.invoke(ref.isPlaying)
+
+         if (justFinished) {
+           intendedPlayingState = false
+@@ -162,6 +220,16 @@ abstract class BaseAudioPlayer(
    protected open fun releasePlayer() {
      playerListener?.let { ref.removeListener(it) }
      playerScope.cancel()
 +    mediaSession.release()
 +    if (isActiveForLockScreen) {
-+      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer()
++      serviceConnection.playbackServiceBinder?.service?.unregisterPlayer(restoreBasicSession = false)
 +    }
 +    serviceConnection.unbind()
      ref.release()
@@ -313,7 +541,7 @@ index 149e907..df0cd49 100644
 +  }
  }
 diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
-index 196a5d5..9be867e 100644
+index 196a5d5..0b0e864 100644
 --- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
 +++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
 @@ -24,7 +24,8 @@ import androidx.media3.session.MediaSessionService
@@ -338,17 +566,30 @@ index 196a5d5..9be867e 100644
 @@ -88,6 +89,9 @@ class AudioControlsService : MediaSessionService() {
              currentPlayerRef.play()
            }
- 
+
 +        ACTION_PREVIOUS -> currentPlayerRef.seekToPreviousMediaItem()
 +        ACTION_NEXT -> currentPlayerRef.seekToNextMediaItem()
 +
          ACTION_SEEK_FORWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition + SEEK_INTERVAL_MS)
          ACTION_SEEK_BACKWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition - SEEK_INTERVAL_MS)
        }
+@@ -177,9 +181,9 @@ class AudioControlsService : MediaSessionService() {
+     val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+       .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
+       // If the title is null or empty string android sets the notification to "<AppName> is running..." we want to keep the notification empty so we \u200E to keep the text empty.
+-      .setContentTitle(currentMetadata?.title ?: "\u200E")
+-      .setContentText(currentMetadata?.artist)
+-      .setSubText(currentMetadata?.albumTitle)
++      .setContentTitle(session.player.mediaMetadata.title ?: "\u200E")
++      .setContentText(session.player.mediaMetadata.artist)
++      .setSubText(session.player.mediaMetadata.albumTitle)
+       .setLargeIcon(currentArtwork)
+       .setContentIntent(buildContentIntent())
+       .setAutoCancel(false)
 @@ -192,6 +196,18 @@ class AudioControlsService : MediaSessionService() {
        val compactViewIndices = mutableListOf<Int>()
        var currentIndex = 0
- 
+
 +      if (session.player.availableCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
 +        builder.addAction(
 +          NotificationCompat.Action(
@@ -367,7 +608,7 @@ index 196a5d5..9be867e 100644
 @@ -229,6 +245,17 @@ class AudioControlsService : MediaSessionService() {
          compactViewIndices.add(currentIndex)
        }
- 
+
 +      if (session.player.availableCommands.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
 +        builder.addAction(
 +          NotificationCompat.Action(
@@ -381,11 +622,11 @@ index 196a5d5..9be867e 100644
 +
        style.setShowActionsInCompactView(*compactViewIndices.toIntArray())
      }
- 
+
 @@ -240,6 +267,17 @@ class AudioControlsService : MediaSessionService() {
      val session = mediaSession ?: return
      val mediaButtons = mutableListOf<CommandButton>()
- 
+
 +    if (session.player.availableCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
 +      mediaButtons.add(
 +        CommandButton.Builder(CommandButton.ICON_PREVIOUS)
@@ -403,7 +644,7 @@ index 196a5d5..9be867e 100644
 @@ -274,6 +312,17 @@ class AudioControlsService : MediaSessionService() {
        )
      }
- 
+
 +    if (session.player.availableCommands.contains(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
 +      mediaButtons.add(
 +        CommandButton.Builder(CommandButton.ICON_NEXT)
@@ -418,76 +659,327 @@ index 196a5d5..9be867e 100644
      session.setCustomLayout(mediaButtons)
      session.setMediaButtonPreferences(mediaButtons)
    }
-@@ -320,9 +369,19 @@ class AudioControlsService : MediaSessionService() {
+@@ -320,105 +369,94 @@ class AudioControlsService : MediaSessionService() {
      postOrStartForegroundNotification(startInForegroundRequired)
    }
- 
+
 -  private fun resolveSessionPlayer(player: AudioPlayer, options: AudioLockScreenOptions?): Player {
-+  private fun resolveSessionPlayer(player: BaseAudioPlayer, options: AudioLockScreenOptions?): Player {
-     val isLive = options?.isLiveStream ?: player.isLive
-     if (!isLive) {
-+      if (player is AudioPlaylist) {
-+        return object : ForwardingPlayer(player.ref) {
-+          override fun getAvailableCommands(): Player.Commands {
-+            return super.getAvailableCommands().buildUpon()
-+              .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-+              .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-+              .build()
-+          }
-+        }
-+      }
-       return player.ref
+-    val isLive = options?.isLiveStream ?: player.isLive
+-    if (!isLive) {
+-      return player.ref
+-    }
+-
+-    return object : ForwardingPlayer(player.ref) {
+-      override fun getAvailableCommands(): Player.Commands {
+-        return super.getAvailableCommands().buildUpon()
+-          .remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+-          .build()
++  private fun resolveSessionPlayer(player: BaseAudioPlayer): Player = object : ForwardingPlayer(player.ref) {
++    override fun getAvailableCommands(): Player.Commands {
++      val commands = super.getAvailableCommands().buildUpon()
++      if (currentOptions?.isLiveStream ?: player.isLive) {
++        commands.remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
++      } else if (player is AudioPlaylist) {
++        commands.add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
++        commands.add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+       }
++      return commands.build()
      }
- 
-@@ -336,7 +395,7 @@ class AudioControlsService : MediaSessionService() {
++
++    override fun isCommandAvailable(command: Int): Boolean = availableCommands.contains(command)
    }
- 
+
    private fun setActivePlayerInternal(
 -    player: AudioPlayer?,
-+    player: BaseAudioPlayer?,
-     metadata: Metadata? = null,
-     options: AudioLockScreenOptions? = null
+-    metadata: Metadata? = null,
+-    options: AudioLockScreenOptions? = null
++    player: BaseAudioPlayer,
++    metadata: Metadata?,
++    options: AudioLockScreenOptions?
    ) {
-@@ -396,7 +455,7 @@ class AudioControlsService : MediaSessionService() {
-     }
-   }
- 
--  private fun updateMetadataInternal(player: AudioPlayer, metadata: Metadata?) {
+-    appContext?.mainQueue?.launch {
+-      val playbackListener = playbackListener ?: return@launch
+-      currentPlayer?.ref?.removeListener(playbackListener)
+-    }
+-
+-    playbackListener = null
++    // These entry points run on the player's application looper. Do not queue a
++    // second creation: a rapid selection could otherwise install an old session.
++    removePlayerListener()
+     currentPlayer?.isActiveForLockScreen = false
+     hideNotification()
++    clearArtwork()
++    mediaSession?.let { removeSession(it); it.release() }
+
+     currentPlayer = player
+-    currentMetadata = metadata
++    currentMetadata = null
+     currentOptions = options
++    player.isActiveForLockScreen = true
++
++    val context = appContext?.reactContext ?: return
++    val sessionPlayer = MetadataInjectingPlayer(resolveSessionPlayer(player))
++    sessionPlayer.updateMetadata(metadata)
++    player.mediaSession.release()
++    val session = MediaSession.Builder(context, sessionPlayer)
++      .setCallback(AudioMediaSessionCallback())
++      .build()
++    player.mediaSession = session
++    addSession(session)
++    mediaSession = session
++    sessionMetadataPlayer = sessionPlayer
++    addPlayerListener(player)
++    updateMetadataInternal(player, metadata)
++    updateSessionCustomLayout(player.ref.isPlaying)
++    postOrStartForegroundNotification(startInForeground = true)
++  }
+
+-    metadata?.artworkUrl?.let {
+-      loadArtworkFromUrl(it) { bitmap ->
+-        currentArtwork = bitmap
+-        postOrStartForegroundNotification(startInForeground = false)
+-      }
+-    }
+-    player?.isActiveForLockScreen = true
+-
+-    if (player != null) {
+-      mediaSession?.release()
+-      sessionMetadataPlayer = null
+-
+-      appContext?.mainQueue?.launch {
+-        val context = appContext?.reactContext ?: return@launch
+-        val sessionPlayer = MetadataInjectingPlayer(resolveSessionPlayer(player, options)).apply {
+-          updateMetadata(metadata)
 +  private fun updateMetadataInternal(player: BaseAudioPlayer, metadata: Metadata?) {
-     if (player != currentPlayer || metadata == currentMetadata) {
-       return
++    if (player != currentPlayer) return
++    if (metadata != null && sessionMetadataPlayer?.matchesCurrentItem(metadata) == false) return
++    currentMetadata = metadata
++    sessionMetadataPlayer?.updateMetadata(metadata)
++    val artworkUrl = metadata?.artworkUrl
++    if (artworkUrl != currentArtworkUrl) {
++      clearArtwork()
++      artworkUrl?.let { url ->
++        loadArtworkFromUrl(url) { bitmap ->
++          currentArtwork = bitmap
++          postOrStartForegroundNotification(startInForeground = false)
+         }
+-        val session = MediaSession.Builder(context, sessionPlayer)
+-          .setCallback(AudioMediaSessionCallback())
+-          .build()
+-
+-        // Replace the basic media session with a session connected to our playback service.
+-        player.mediaSession.release()
+-        player.mediaSession = session
+-
+-        addSession(session)
+-        mediaSession = session
+-        sessionMetadataPlayer = sessionPlayer
+-
+-        updateSessionCustomLayout(player.ref.isPlaying)
+-
+-        postOrStartForegroundNotification(startInForeground = true)
+-
+-        addPlayerListener(player)
+-
+-        // Initial update now that session exists
+-        postOrStartForegroundNotification(startInForeground = false)
+       }
+-    } else {
+-      clearSessionInternal()
      }
-@@ -431,12 +490,12 @@ class AudioControlsService : MediaSessionService() {
++    postOrStartForegroundNotification(startInForeground = false)
+   }
+
+-  private fun updateMetadataInternal(player: AudioPlayer, metadata: Metadata?) {
+-    if (player != currentPlayer || metadata == currentMetadata) {
+-      return
+-    }
+-    currentMetadata = metadata
+-    sessionMetadataPlayer?.updateMetadata(metadata)
+-    currentMetadata?.artworkUrl?.let {
+-      loadArtworkFromUrl(it) { bitmap ->
+-        currentArtwork = bitmap
+-        postOrStartForegroundNotification(startInForeground = false)
+-      }
+-    } ?: postOrStartForegroundNotification(startInForeground = false)
++  private fun clearArtwork() {
++    artworkLoadJob?.cancel()
++    artworkLoadJob = null
++    currentArtworkUrl = null
++    currentArtwork = null
+   }
+
+-  private fun clearSessionInternal() {
+-    currentPlayer?.isActiveForLockScreen = false
++  private fun clearSessionInternal(restoreBasicSession: Boolean = true) {
++    val previousPlayer = currentPlayer
++    previousPlayer?.isActiveForLockScreen = false
+     removePlayerListener()
+-    currentPlayer = null
+-    currentMetadata = null
+-    mediaSession?.release()
++    hideNotification()
++    clearArtwork()
++    mediaSession?.let { removeSession(it); it.release() }
+     mediaSession = null
+     sessionMetadataPlayer = null
+-    currentPlayer?.assignBasicMediaSession()
++    currentPlayer = null
++    currentMetadata = null
++    currentOptions = null
++    if (restoreBasicSession) previousPlayer?.assignBasicMediaSession()
+     stopForeground(STOP_FOREGROUND_REMOVE)
+   }
+
+@@ -431,55 +469,28 @@ class AudioControlsService : MediaSessionService() {
      return binder
    }
- 
+
 -  fun setPlayerMetadata(player: AudioPlayer, metadata: Metadata?) {
 +  fun setPlayerMetadata(player: BaseAudioPlayer, metadata: Metadata?) {
      updateMetadataInternal(player, metadata)
    }
- 
+
    fun setPlayerOptions(
 -    player: AudioPlayer,
 +    player: BaseAudioPlayer,
      metadata: Metadata?,
      options: AudioLockScreenOptions?
    ) {
-@@ -527,7 +586,7 @@ class AudioControlsService : MediaSessionService() {
-     removePlayerListener()
+-    if (player == currentPlayer) {
+-      currentMetadata = metadata
++    if (player == currentPlayer && mediaSession != null) {
++      // A song selection or artwork update must not disconnect car/wearable
++      // controllers by destroying their session token.
+       currentOptions = options
+-
+-      mediaSession?.release()
+-      sessionMetadataPlayer = null
+-      appContext?.mainQueue?.launch {
+-        val context = appContext?.reactContext ?: return@launch
+-        val sessionPlayer = MetadataInjectingPlayer(resolveSessionPlayer(player, options)).apply {
+-          updateMetadata(metadata)
+-        }
+-        val session = MediaSession.Builder(context, sessionPlayer)
+-          .setCallback(AudioMediaSessionCallback())
+-          .build()
+-
+-        player.mediaSession.release()
+-        player.mediaSession = session
+-
+-        addSession(session)
+-        mediaSession = session
+-        sessionMetadataPlayer = sessionPlayer
+-
+-        updateSessionCustomLayout(player.ref.isPlaying)
+-        postOrStartForegroundNotification(startInForeground = false)
+-      }
+-
+-      // Reload artwork if metadata has changed
+-      metadata?.artworkUrl?.let {
+-        loadArtworkFromUrl(it) { bitmap ->
+-          currentArtwork = bitmap
+-          postOrStartForegroundNotification(startInForeground = false)
+-        }
+-      }
++      updateMetadataInternal(player, metadata)
++      updateSessionCustomLayout(player.ref.isPlaying)
+     } else {
+       setActivePlayerInternal(player, metadata, options)
+     }
    }
- 
+
+-  fun unregisterPlayer() {
+-    clearSessionInternal()
++  fun unregisterPlayer(restoreBasicSession: Boolean = true) {
++    clearSessionInternal(restoreBasicSession)
+   }
+
+   private fun loadArtworkFromUrl(url: URL, callback: (Bitmap?) -> Unit) {
+@@ -487,17 +498,20 @@ class AudioControlsService : MediaSessionService() {
+       currentArtworkUrl = url
+       artworkLoadJob?.cancel()
+
++      val mediaId = currentPlayer?.ref?.currentMediaItem?.mediaId
+       artworkLoadJob = scope.launch {
+         try {
+-          val inputStream = url.openConnection().getInputStream()
+-          val bitmap = BitmapFactory.decodeStream(inputStream)
+-
++          val bitmap = url.openConnection().getInputStream().use { BitmapFactory.decodeStream(it) }
+           if (isActive) {
+-            callback(bitmap)
++            appContext?.mainQueue?.launch {
++              if (currentArtworkUrl == url && currentPlayer?.ref?.currentMediaItem?.mediaId == mediaId) callback(bitmap)
++            }
+           }
+         } catch (e: Exception) {
+           if (isActive) {
+-            callback(null)
++            appContext?.mainQueue?.launch {
++              if (currentArtworkUrl == url && currentPlayer?.ref?.currentMediaItem?.mediaId == mediaId) callback(null)
++            }
+           }
+         }
+       }
+@@ -516,6 +530,7 @@ class AudioControlsService : MediaSessionService() {
+     artworkLoadJob?.cancel()
+     artworkLoadJob = null
+     scope.cancel()
++    removePlayerListener()
+     mediaSession?.release()
+     mediaSession = null
+     sessionMetadataPlayer = null
+@@ -524,10 +539,9 @@ class AudioControlsService : MediaSessionService() {
+     currentOptions = null
+     currentArtwork = null
+     currentArtworkUrl = null
+-    removePlayerListener()
+   }
+
 -  private fun addPlayerListener(player: AudioPlayer) {
 +  private fun addPlayerListener(player: BaseAudioPlayer) {
      val listener = object : Player.Listener {
        override fun onIsPlayingChanged(isPlaying: Boolean) {
          updateSessionCustomLayout(isPlaying)
-@@ -555,6 +614,8 @@ class AudioControlsService : MediaSessionService() {
+@@ -537,17 +551,25 @@ class AudioControlsService : MediaSessionService() {
+       override fun onPlaybackStateChanged(playbackState: Int) {
+         postOrStartForegroundNotification(startInForeground = false)
+       }
++
++      override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
++        val metadata = currentMetadata
++        if (metadata != null && sessionMetadataPlayer?.matchesCurrentItem(metadata) == false) {
++          currentMetadata = null
++          clearArtwork()
++        }
++        updateSessionCustomLayout(player.ref.isPlaying)
++        postOrStartForegroundNotification(startInForeground = false)
++      }
+     }
+     playbackListener = listener
+     player.ref.addListener(listener)
+   }
+
+   private fun removePlayerListener() {
+-    appContext?.mainQueue?.launch {
+-      val listener = playbackListener ?: return@launch
+-      currentPlayer?.ref?.removeListener(listener)
+-      playbackListener = null
+-    }
++    val listener = playbackListener ?: return
++    currentPlayer?.ref?.removeListener(listener)
++    playbackListener = null
+   }
+
+   companion object {
+@@ -555,6 +577,8 @@ class AudioControlsService : MediaSessionService() {
      private const val ACTION_PLAY = "expo.modules.audio.action.PLAY"
      private const val ACTION_PAUSE = "expo.modules.audio.action.PAUSE"
      private const val ACTION_TOGGLE = "expo.modules.audio.action.TOGGLE"
 +    private const val ACTION_PREVIOUS = "expo.modules.audio.action.PREVIOUS"
 +    private const val ACTION_NEXT = "expo.modules.audio.action.NEXT"
- 
+
      const val ACTION_SEEK_FORWARD = "expo.modules.audio.action.SEEK_FORWARD"
      const val ACTION_SEEK_BACKWARD = "expo.modules.audio.action.SEEK_BACKWARD"
 diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
@@ -520,7 +1012,7 @@ index f183a93..b049179 100644
  import expo.modules.kotlin.AppContext
  import java.lang.ref.WeakReference
 @@ -14,7 +14,7 @@ class AudioPlaybackServiceBinder(val service: AudioControlsService) : android.os
- 
+
  @OptIn(UnstableApi::class)
  class AudioPlaybackServiceConnection(
 -  val player: WeakReference<AudioPlayer>,
@@ -528,6 +1020,123 @@ index f183a93..b049179 100644
    appContext: AppContext
  ) : BaseServiceConnection<AudioPlaybackServiceBinder>(appContext) {
    var playbackServiceBinder: AudioPlaybackServiceBinder? = null
+diff --git a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt
+index 18203a3..e6217e5 100644
+--- a/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt
++++ b/node_modules/expo-audio/android/src/main/java/expo/modules/audio/service/MetadataInjectingPlayer.kt
+@@ -1,93 +1,35 @@
+ package expo.modules.audio.service
+
+-import android.os.Handler
+-import android.os.Looper
+ import androidx.core.net.toUri
+-import androidx.media3.common.FlagSet
+ import androidx.media3.common.ForwardingPlayer
+-import androidx.media3.common.MediaMetadata
+ import androidx.media3.common.Player
+ import androidx.media3.common.util.UnstableApi
+ import expo.modules.audio.Metadata
+-import java.util.IdentityHashMap
+
+-// MediaSession reads artwork from Player.mediaMetadata, but expo-audio lock-screen metadata can
+-// change independently of the underlying MediaItem. This wrapper lets the session observe those
+-// metadata updates without replacing the active media item on the real ExoPlayer instance.
++// Keep the timeline, active item, and controller metadata in one native state.
++// ExoPlayer supports replacing only a MediaItem's metadata without reloading its
++// audio source. A getter-only override leaves the session's playlist unchanged
++// and can publish the previous track's information during a transition.
+ @UnstableApi
+-internal class MetadataInjectingPlayer(
+-  player: Player
+-) : ForwardingPlayer(player) {
+-  private val handler = Handler(applicationLooper)
+-  private val listeners = IdentityHashMap<Player.Listener, Player.Listener>()
+-  private var injectedMetadata: Metadata? = null
+-
+-  override fun addListener(listener: Player.Listener) {
+-    val forwardingListener = synchronized(listeners) {
+-      listeners.getOrPut(listener) { MetadataForwardingListener(listener) }
+-    }
+-    super.addListener(forwardingListener)
+-  }
+-
+-  override fun removeListener(listener: Player.Listener) {
+-    val forwardingListener = synchronized(listeners) {
+-      listeners.remove(listener)
+-    }
+-    super.removeListener(forwardingListener ?: listener)
+-  }
+-
+-  override fun getMediaMetadata(): MediaMetadata {
+-    val metadata = injectedMetadata
+-    return super.getMediaMetadata()
+-      .buildUpon()
+-      .setTitle(metadata?.title)
+-      .setArtist(metadata?.artist)
+-      .setAlbumTitle(metadata?.albumTitle)
+-      .setArtworkUri(metadata?.artworkUrl?.toString()?.toUri())
++internal class MetadataInjectingPlayer(player: Player) : ForwardingPlayer(player) {
++  fun updateMetadata(metadata: Metadata?) {
++    val item = currentMediaItem ?: return
++    if (metadata == null || !matchesCurrentItem(metadata)) return
++    val updated = item.mediaMetadata.buildUpon()
++      .setTitle(metadata.title)
++      .setArtist(metadata.artist)
++      .setAlbumTitle(metadata.albumTitle)
++      .setArtworkUri(metadata.artworkUrl?.toString()?.toUri())
+       .setArtworkData(null, null)
+       .build()
+-  }
+-
+-  fun updateMetadata(metadata: Metadata?) {
+-    if (Looper.myLooper() != applicationLooper) {
+-      handler.post { updateMetadata(metadata) }
+-      return
+-    }
+-
+-    val previousMetadata = mediaMetadata
+-    injectedMetadata = metadata
+-    val newMetadata = mediaMetadata
+-
+-    if (previousMetadata == newMetadata) {
+-      return
+-    }
+-
+-    val events = Player.Events(
+-      FlagSet.Builder()
+-        .add(Player.EVENT_MEDIA_METADATA_CHANGED)
+-        .build()
+-    )
+-    val currentListeners = synchronized(listeners) {
+-      listeners.keys.toList()
+-    }
+-
+-    currentListeners.forEach {
+-      it.onMediaMetadataChanged(newMetadata)
+-    }
+-    currentListeners.forEach {
+-      it.onEvents(this, events)
++    if (updated != item.mediaMetadata) {
++      replaceMediaItem(currentMediaItemIndex, item.buildUpon().setMediaMetadata(updated).build())
+     }
+   }
+
+-  private inner class MetadataForwardingListener(
+-    private val listener: Player.Listener
+-  ) : Player.Listener by listener {
+-    override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+-      listener.onMediaMetadataChanged(this@MetadataInjectingPlayer.mediaMetadata)
+-    }
+-
+-    override fun onEvents(player: Player, events: Player.Events) {
+-      listener.onEvents(this@MetadataInjectingPlayer, events)
+-    }
++  fun matchesCurrentItem(metadata: Metadata): Boolean {
++    val item = currentMediaItem ?: return false
++    val uri = metadata.uri ?: return true
++    return item.mediaId == uri || item.localConfiguration?.uri?.toString() == uri
+   }
+ }
 diff --git a/node_modules/expo-audio/build/AudioModule.types.d.ts b/node_modules/expo-audio/build/AudioModule.types.d.ts
 index f3ae4ee..d377808 100644
 --- a/node_modules/expo-audio/build/AudioModule.types.d.ts
@@ -549,7 +1158,7 @@ index 7e75371..6f5f9b2 100644
 @@ -531,6 +531,12 @@ export declare class AudioPlaylist extends SharedObject<AudioPlaylistEvents> {
     */
    clear(): void;
- 
+
 +  setActiveForLockScreen(active: boolean, metadata?: AudioMetadata, options?: AudioLockScreenOptions): void;
 +
 +  updateLockScreenMetadata(metadata: AudioMetadata): void;
